@@ -60,7 +60,7 @@ pub async fn run(cmd: ClientCommand) -> Result<(), ClientError> {
     match cmd {
         ClientCommand::AddOperator { users } => crate::add_operator::run_add_operator(users).await,
         ClientCommand::Login(args) => login(args).await,
-        ClientCommand::Connect(_args) => go_to_target_state(Some(TunnelArgs { exit: ExitSelector::Any {} })).await,
+        ClientCommand::Connect(_args) => go_to_target_state(Some(TunnelArgs { exit: ExitSelector::Any {}, ..Default::default() })).await,
         ClientCommand::Disconnect(_args) => go_to_target_state(None).await,
         ClientCommand::Status(args) => status(args).await,
         ClientCommand::DebugBundle(args) => debug_bundle(args).await,
@@ -139,7 +139,7 @@ async fn go_to_target_state(target_state: Option<TunnelArgs>) -> Result<(), Clie
         known_version = Some(status.version);
         eprintln!("{}", vpn_status_summary(&status.vpn_status));
         match (&status.vpn_status, &target_state) {
-            (VpnStatus::Connected { exit, .. }, Some(TunnelArgs { exit: exit_selector })) if exit_selector.matches(exit) => break,
+            (VpnStatus::Connected { exit, .. }, Some(TunnelArgs { exit: exit_selector, .. })) if exit_selector.matches(exit) => break,
             (VpnStatus::Disconnected {}, None) => break,
             _ => {}
         }

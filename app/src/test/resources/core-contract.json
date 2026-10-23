@@ -1,0 +1,652 @@
+{
+  "about": "Written by rust/obscura-core/src/kotlin_contract_test.rs, read by CoreContractTest.kt. Do not edit.",
+  "commands": {
+    "apiDeleteAccount": {
+      "apiDeleteAccount": {}
+    },
+    "apiGetAccountInfo": {
+      "apiGetAccountInfo": {}
+    },
+    "apiServiceStatus": {
+      "apiServiceStatus": {}
+    },
+    "getExitList": {
+      "getExitList": {
+        "knownVersion": "AAECAw=="
+      }
+    },
+    "getExitListFirst": {
+      "getExitList": {
+        "knownVersion": null
+      }
+    },
+    "getRelayList": {
+      "getRelayList": {
+        "knownVersion": "AAEC"
+      }
+    },
+    "getRelayListFirst": {
+      "getRelayList": {
+        "knownVersion": null
+      }
+    },
+    "getStatus": {
+      "getStatus": {
+        "knownVersion": "2b9a3c1e-0d4f-4a9b-8c6e-1f2a3b4c5d6e"
+      }
+    },
+    "getStatusFirst": {
+      "getStatus": {
+        "knownVersion": null
+      }
+    },
+    "getTrafficStats": {
+      "getTrafficStats": {}
+    },
+    "login": {
+      "login": {
+        "accountId": "55550123456780554337",
+        "validate": true
+      }
+    },
+    "logout": {
+      "logout": {}
+    },
+    "ping": {
+      "ping": {}
+    },
+    "refreshExitList": {
+      "refreshExitList": {
+        "freshness": 60000
+      }
+    },
+    "refreshOsNetworkConfig": {
+      "refreshOsNetworkConfig": {}
+    },
+    "refreshRelayList": {
+      "refreshRelayList": {
+        "freshness": 60000
+      }
+    },
+    "rotateWgKey": {
+      "rotateWgKey": {}
+    },
+    "setApiHostAlternate": {
+      "setApiHostAlternate": {
+        "host": "api.example.org"
+      }
+    },
+    "setApiHostAlternateDefault": {
+      "setApiHostAlternate": {
+        "host": null
+      }
+    },
+    "setApiUrl": {
+      "setApiUrl": {
+        "url": null
+      }
+    },
+    "setAutoConnect": {
+      "setAutoConnect": {
+        "enable": true
+      }
+    },
+    "setDnsContentBlock": {
+      "setDnsContentBlock": {
+        "value": {
+          "ad": true,
+          "adult": false,
+          "gambling": false,
+          "malware": true,
+          "socialMedia": true,
+          "tracker": false
+        }
+      }
+    },
+    "setFeatureFlag.forceSmallMtu": {
+      "setFeatureFlag": {
+        "active": false,
+        "flag": "forceSmallMtu"
+      }
+    },
+    "setFeatureFlag.quicFramePadding": {
+      "setFeatureFlag": {
+        "active": true,
+        "flag": "quicFramePadding"
+      }
+    },
+    "setFeatureFlag.tcpTlsTunnel": {
+      "setFeatureFlag": {
+        "active": true,
+        "flag": "tcpTlsTunnel"
+      }
+    },
+    "setInNewAccountFlow": {
+      "setInNewAccountFlow": {
+        "value": true
+      }
+    },
+    "setLocalNetworkAccess": {
+      "setLocalNetworkAccess": {
+        "enable": false
+      }
+    },
+    "setPinnedExits": {
+      "setPinnedExits": {
+        "exits": [
+          {
+            "city_code": "nyc",
+            "country_code": "US",
+            "pinned_at": 1700000000
+          }
+        ]
+      }
+    },
+    "setSniRelay": {
+      "setSniRelay": {
+        "host": "sni.example.org"
+      }
+    },
+    "setSniRelayDefault": {
+      "setSniRelay": {
+        "host": null
+      }
+    },
+    "setTunnelArgs.connect": {
+      "setTunnelArgs": {
+        "active": true,
+        "args": {
+          "exit": {
+            "country": {
+              "country_code": "US"
+            }
+          },
+          "mode": "wireguardUdp",
+          "relay": {
+            "city": {
+              "city_code": "fra",
+              "country_code": "DE"
+            }
+          },
+          "udpMtu": 1400
+        }
+      }
+    },
+    "setTunnelArgs.connectStored": {
+      "setTunnelArgs": {
+        "active": true,
+        "args": null
+      }
+    },
+    "setTunnelArgs.disconnect": {
+      "setTunnelArgs": {
+        "active": false,
+        "args": null
+      }
+    },
+    "setTunnelArgs.settings": {
+      "setTunnelArgs": {
+        "active": null,
+        "args": {
+          "exit": {
+            "exit": {
+              "id": "NYC-001"
+            }
+          },
+          "mode": "tcpTls",
+          "relay": {
+            "relay": {
+              "id": "relay-1"
+            }
+          },
+          "udpMtu": null
+        }
+      }
+    },
+    "setUseSystemDns": {
+      "setUseSystemDns": {
+        "enable": true
+      }
+    }
+  },
+  "enums": {
+    "connectErrorCode": [
+      "accountExpired",
+      "apiError",
+      "apiRateLimitExceeded",
+      "apiUnreachable",
+      "invalidAccountId",
+      "noInternet",
+      "noLongerSupported",
+      "noRelay",
+      "noSlotsLeft",
+      "notLoggedIn",
+      "other",
+      "udpHandshakeFailed"
+    ],
+    "featureFlag": [
+      "quicFramePadding",
+      "killSwitch",
+      "forceSmallMtu",
+      "tcpTlsTunnel"
+    ],
+    "managerCmdErrorCode": [
+      "apiAssociateAccountConflict",
+      "apiError",
+      "apiInvalidAccountId",
+      "apiNoLongerSupported",
+      "apiRateLimitExceeded",
+      "apiSaleNotFound",
+      "apiSignupLimitExceeded",
+      "apiUnreachable",
+      "configSaveError",
+      "notLoggedIn",
+      "other"
+    ],
+    "transportKind": [
+      "quic",
+      "tcpTls",
+      "wireguardUdp"
+    ],
+    "tunnelMode": [
+      "quic",
+      "tcpTls",
+      "wireguardUdp"
+    ]
+  },
+  "results": {
+    "apiGetAccountInfo": {
+      "active": true,
+      "apple_subscription": null,
+      "auto_renews": null,
+      "current_expiry": 1800000000,
+      "free_month_on_next_payment": false,
+      "free_trial": {
+        "active": false,
+        "expires_at": 1600000000
+      },
+      "google_subscription": null,
+      "has_paid": true,
+      "has_referrer": false,
+      "id": "55550123456780554337",
+      "monero_pending_payments": [
+        {
+          "id": "m-1",
+          "status": "confirming"
+        }
+      ],
+      "nnn": null,
+      "primary_funding": "top_up",
+      "received_free_months": 0,
+      "referral_code": "REF123",
+      "stripe_subscription": null,
+      "top_up": {
+        "active": true,
+        "credit_expires_at": 1800000000
+      }
+    },
+    "apiServiceStatus": {
+      "free_trial": {
+        "available": true
+      },
+      "nnn": {
+        "claimed_months_target": 100000,
+        "claimed_months_total": 1234,
+        "submissions_open": true
+      }
+    },
+    "empty": null,
+    "getExitList": {
+      "last_updated": 1700000000,
+      "value": {
+        "exits": [
+          {
+            "city_code": "nyc",
+            "city_name": "New York",
+            "country_code": "US",
+            "datacenter_id": 42,
+            "id": "NYC-001",
+            "provider_homepage_url": "https://mullvad.net",
+            "provider_id": "us-nyc-wg-301",
+            "provider_name": "Mullvad VPN",
+            "provider_url": "https://mullvad.net/servers",
+            "tier": 0
+          }
+        ]
+      },
+      "version": "AAECAw=="
+    },
+    "getRelayList": {
+      "last_updated": 1700000001,
+      "value": [
+        {
+          "city_code": "fra",
+          "city_name": "Frankfurt",
+          "country_code": "DE",
+          "id": "relay-1",
+          "ip_v4": "192.0.2.10",
+          "ports": [
+            443,
+            8443
+          ],
+          "preferred_exits": [
+            {
+              "id": "FRA-001"
+            }
+          ],
+          "tls_cert": "MIIBsw=="
+        }
+      ],
+      "version": "AAEC"
+    },
+    "getStatus.connected": {
+      "account": {
+        "account_info": {
+          "active": true,
+          "apple_subscription": null,
+          "auto_renews": null,
+          "current_expiry": 1800000000,
+          "free_month_on_next_payment": false,
+          "free_trial": {
+            "active": false,
+            "expires_at": 1600000000
+          },
+          "google_subscription": null,
+          "has_paid": true,
+          "has_referrer": false,
+          "id": "55550123456780554337",
+          "monero_pending_payments": [
+            {
+              "id": "m-1",
+              "status": "confirming"
+            }
+          ],
+          "nnn": null,
+          "primary_funding": "top_up",
+          "received_free_months": 0,
+          "referral_code": "REF123",
+          "stripe_subscription": null,
+          "top_up": {
+            "active": true,
+            "credit_expires_at": 1800000000
+          }
+        },
+        "last_updated_sec": 1700000100
+      },
+      "accountId": "55550123456780554337",
+      "apiUrl": "https://v1.api.prod.obscura.net/api",
+      "autoConnect": true,
+      "dnsContentBlock": {
+        "ad": true,
+        "adult": false,
+        "gambling": false,
+        "malware": true,
+        "socialMedia": true,
+        "tracker": false
+      },
+      "featureFlagKeys": [
+        "quicFramePadding",
+        "killSwitch",
+        "forceSmallMtu",
+        "tcpTlsTunnel"
+      ],
+      "featureFlags": {
+        "forceSmallMtu": true,
+        "killSwitch": null,
+        "quicFramePadding": true,
+        "tcpTlsTunnel": null
+      },
+      "inNewAccountFlow": false,
+      "lastChosenExit": {
+        "city": {
+          "city_code": "nyc",
+          "country_code": "US"
+        }
+      },
+      "lastExit": {
+        "any": {}
+      },
+      "localNetworkAccess": false,
+      "pinnedLocations": [
+        {
+          "city_code": "nyc",
+          "country_code": "US",
+          "pinned_at": 1700000000
+        }
+      ],
+      "tailscaleBypass": false,
+      "useSystemDns": false,
+      "version": "2b9a3c1e-0d4f-4a9b-8c6e-1f2a3b4c5d6e",
+      "vpnStatus": {
+        "connected": {
+          "clientPublicKey": "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=",
+          "exit": {
+            "city_code": "nyc",
+            "city_name": "New York",
+            "country_code": "US",
+            "datacenter_id": 42,
+            "id": "NYC-001",
+            "provider_homepage_url": "https://mullvad.net",
+            "provider_id": "us-nyc-wg-301",
+            "provider_name": "Mullvad VPN",
+            "provider_url": "https://mullvad.net/servers",
+            "tier": 0
+          },
+          "exitPublicKey": "AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI=",
+          "relay": {
+            "city_code": "fra",
+            "city_name": "Frankfurt",
+            "country_code": "DE",
+            "id": "relay-1",
+            "ip_v4": "192.0.2.10",
+            "ports": [
+              443,
+              8443
+            ],
+            "preferred_exits": [
+              {
+                "id": "FRA-001"
+              }
+            ],
+            "tls_cert": "MIIBsw=="
+          },
+          "transport": "wireguardUdp",
+          "tunnelArgs": {
+            "exit": {
+              "country": {
+                "country_code": "US"
+              }
+            },
+            "mode": "wireguardUdp",
+            "relay": {
+              "city": {
+                "city_code": "fra",
+                "country_code": "DE"
+              }
+            },
+            "udpMtu": 1400
+          }
+        }
+      },
+      "wireguardBypass": false
+    },
+    "getStatus.connecting": {
+      "account": null,
+      "accountId": null,
+      "apiUrl": "https://v1.api.prod.obscura.net/api",
+      "autoConnect": true,
+      "dnsContentBlock": {
+        "ad": true,
+        "adult": false,
+        "gambling": false,
+        "malware": true,
+        "socialMedia": true,
+        "tracker": false
+      },
+      "featureFlagKeys": [
+        "quicFramePadding",
+        "killSwitch",
+        "forceSmallMtu",
+        "tcpTlsTunnel"
+      ],
+      "featureFlags": {
+        "forceSmallMtu": true,
+        "killSwitch": null,
+        "quicFramePadding": true,
+        "tcpTlsTunnel": null
+      },
+      "inNewAccountFlow": false,
+      "lastChosenExit": {
+        "city": {
+          "city_code": "nyc",
+          "country_code": "US"
+        }
+      },
+      "lastExit": {
+        "any": {}
+      },
+      "localNetworkAccess": false,
+      "pinnedLocations": [
+        {
+          "city_code": "nyc",
+          "country_code": "US",
+          "pinned_at": 1700000000
+        }
+      ],
+      "tailscaleBypass": false,
+      "useSystemDns": false,
+      "version": "2b9a3c1e-0d4f-4a9b-8c6e-1f2a3b4c5d6e",
+      "vpnStatus": {
+        "connecting": {
+          "connectError": "udpHandshakeFailed",
+          "reconnecting": true,
+          "tunnelArgs": {
+            "exit": {
+              "country": {
+                "country_code": "US"
+              }
+            },
+            "mode": "wireguardUdp",
+            "relay": {
+              "city": {
+                "city_code": "fra",
+                "country_code": "DE"
+              }
+            },
+            "udpMtu": 1400
+          }
+        }
+      },
+      "wireguardBypass": false
+    },
+    "getStatus.disconnected": {
+      "account": {
+        "account_info": {
+          "active": true,
+          "apple_subscription": null,
+          "auto_renews": null,
+          "current_expiry": 1800000000,
+          "free_month_on_next_payment": false,
+          "free_trial": {
+            "active": false,
+            "expires_at": 1600000000
+          },
+          "google_subscription": null,
+          "has_paid": true,
+          "has_referrer": false,
+          "id": "55550123456780554337",
+          "monero_pending_payments": [
+            {
+              "id": "m-1",
+              "status": "confirming"
+            }
+          ],
+          "nnn": null,
+          "primary_funding": "top_up",
+          "received_free_months": 0,
+          "referral_code": "REF123",
+          "stripe_subscription": null,
+          "top_up": {
+            "active": true,
+            "credit_expires_at": 1800000000
+          }
+        },
+        "last_updated_sec": 1700000100
+      },
+      "accountId": "55550123456780554337",
+      "apiUrl": "https://v1.api.prod.obscura.net/api",
+      "autoConnect": true,
+      "dnsContentBlock": {
+        "ad": true,
+        "adult": false,
+        "gambling": false,
+        "malware": true,
+        "socialMedia": true,
+        "tracker": false
+      },
+      "featureFlagKeys": [
+        "quicFramePadding",
+        "killSwitch",
+        "forceSmallMtu",
+        "tcpTlsTunnel"
+      ],
+      "featureFlags": {
+        "forceSmallMtu": true,
+        "killSwitch": null,
+        "quicFramePadding": true,
+        "tcpTlsTunnel": null
+      },
+      "inNewAccountFlow": false,
+      "lastChosenExit": {
+        "city": {
+          "city_code": "nyc",
+          "country_code": "US"
+        }
+      },
+      "lastExit": {
+        "any": {}
+      },
+      "localNetworkAccess": false,
+      "pinnedLocations": [
+        {
+          "city_code": "nyc",
+          "country_code": "US",
+          "pinned_at": 1700000000
+        }
+      ],
+      "tailscaleBypass": false,
+      "useSystemDns": false,
+      "version": "2b9a3c1e-0d4f-4a9b-8c6e-1f2a3b4c5d6e",
+      "vpnStatus": {
+        "disconnected": {}
+      },
+      "wireguardBypass": false
+    },
+    "getTrafficStats": {
+      "connId": "0b1c2d3e-4f50-6172-8394-a5b6c7d8e9f0",
+      "connectedMs": 61000,
+      "latestLatencyMs": 42,
+      "rxBytes": 567890,
+      "txBytes": 1234
+    },
+    "osNetworkConfig": {
+      "dns": [
+        "100.64.0.37"
+      ],
+      "ipv4": "10.75.0.2",
+      "ipv6": "fc00:bbbb:bbbb:bb01::1:2/128",
+      "mtu": 1400,
+      "routes": [
+        {
+          "address": "0.0.0.0",
+          "prefix": 0
+        },
+        {
+          "address": "::",
+          "prefix": 0
+        }
+      ],
+      "useSystemDns": false
+    }
+  }
+}

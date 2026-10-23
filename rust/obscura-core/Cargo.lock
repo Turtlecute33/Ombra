@@ -2885,6 +2885,7 @@ dependencies = [
  "serde_json",
  "serde_with",
  "shlex",
+ "smallvec",
  "socket2 0.6.0",
  "standard_paths",
  "static_assertions",

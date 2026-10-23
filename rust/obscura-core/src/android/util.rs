@@ -92,3 +92,22 @@ impl<'a, 'b> std::fmt::Display for Utf8JavaStr<'a, 'b> {
         self.as_str().fmt(f)
     }
 }
+
+/// The nice value of the core threads, as Android's `THREAD_PRIORITY_DISPLAY`. On the phone, the TUN write queue
+/// overflowed in fewer 5 s windows than with 0 (3 against 8 in six downloads at 300 Mbit/s); -10 gave the same as -4.
+const CORE_THREAD_NICE: libc::c_int = -4;
+
+/// Gives the calling thread the normal Linux scheduling policy and `CORE_THREAD_NICE` (Ombra patch P10). A new thread
+/// gets the policy of the thread that made it, and the Kotlin thread that starts the core is SCHED_BATCH. A batch thread
+/// that wakes up does not preempt the thread on its CPU, so a packet can wait until the time slice of that thread ends.
+pub fn use_normal_scheduling() {
+    let param = libc::sched_param { sched_priority: 0 };
+    // SAFETY: both calls change only the scheduling of the calling thread (pid 0 is the calling thread on Linux).
+    // Android allows apps all nice values (RLIMIT_NICE 40).
+    let failed =
+        unsafe { libc::sched_setscheduler(0, libc::SCHED_NORMAL, &param) != 0 || libc::setpriority(libc::PRIO_PROCESS, 0, CORE_THREAD_NICE) != 0 };
+    if failed {
+        let error = std::io::Error::last_os_error();
+        tracing::warn!(message_id = "Zt6pWq1m", ?error, "failed to set the scheduling of a core thread");
+    }
+}

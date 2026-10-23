@@ -7,10 +7,17 @@ use std::sync::{Arc, Mutex};
 use tokio::sync::watch;
 
 pub struct AndroidOsImpl {
-    tun: Mutex<Option<Tun>>,
+    tun: Mutex<Option<LiveTun>>,
     network_interface: watch::Sender<Option<NetworkInterface>>,
     jvm: Arc<JavaVM>,
     class_cache: Arc<ClassCache>,
+}
+
+/// The live TUN and the config that Java built it from.
+struct LiveTun {
+    /// `None` after `forget_os_network_config`, so the next config goes to Java even when it is the same.
+    config: Option<OsNetworkConfig>,
+    tun: Tun,
 }
 
 impl AndroidOsImpl {
@@ -33,19 +40,30 @@ impl AndroidOsImpl {
 
 impl Os for AndroidOsImpl {
     async fn set_os_network_config(&self, network_config: OsNetworkConfig, tunnel: QuicWgConnPacketSender) -> Result<(), ()> {
-        let json = serde_json::to_string(&network_config).map_err(|error| {
-            tracing::error!(message_id = "dK2xNm3q", ?error, "failed to serialize OsNetworkConfig: {error}");
-        })?;
+        // Each connect attempt sets the dummy config first, and a failing connect tries again every second. Every
+        // `establish()` in Java makes a new interface that replaces the VPN network, so keep the live TUN when the
+        // config did not change and give it only the new packet sender.
+        let reused_fd = match &*self.tun.lock().unwrap() {
+            Some(LiveTun { config: Some(current), tun }) if *current == network_config => tun.try_clone_fd(),
+            _ => None,
+        };
+        let fd = match reused_fd {
+            Some(fd) => {
+                tracing::info!(message_id = "Hq4tVn8e", "network config unchanged, keeping the TUN device");
+                fd
+            }
+            None => {
+                let json = serde_json::to_string(&network_config).map_err(|error| {
+                    tracing::error!(message_id = "dK2xNm3q", ?error, "failed to serialize OsNetworkConfig: {error}");
+                })?;
+                super::ffi::call_set_network_config(self.class_cache.clone(), self.jvm.clone(), json).await?
+            }
+        };
 
-        let fd = super::ffi::call_set_network_config(self.class_cache.clone(), self.jvm.clone(), json).await?;
-
-        let (tun, result) = match Tun::spawn(fd, tunnel) {
+        let (tun, result) = match Tun::spawn(fd, network_config.mtu, tunnel) {
             Ok(tun) => {
-                tracing::info!(
-                    message_id = "mLrplF1x",
-                    ?network_config,
-                    "successfully set network config and spawned TUN device"
-                );
+                // Not the config itself: it has the tunnel addresses of this client.
+                tracing::info!(message_id = "mLrplF1x", "successfully set network config and spawned TUN device");
                 (tun, Ok(()))
             }
             Err(tun) => {
@@ -53,7 +71,7 @@ impl Os for AndroidOsImpl {
                 (tun, Err(()))
             }
         };
-        *self.tun.lock().unwrap() = Some(tun);
+        *self.tun.lock().unwrap() = Some(LiveTun { config: Some(network_config), tun });
         result
     }
 
@@ -63,8 +81,14 @@ impl Os for AndroidOsImpl {
     }
 
     fn packet_for_os(&self, packet: Bytes) {
-        if let Some(tun) = &*self.tun.lock().unwrap() {
-            tun.write(&packet);
+        if let Some(LiveTun { tun, .. }) = &*self.tun.lock().unwrap() {
+            tun.write(packet);
+        }
+    }
+
+    fn forget_os_network_config(&self) {
+        if let Some(live_tun) = &mut *self.tun.lock().unwrap() {
+            live_tun.config = None;
         }
     }
 }

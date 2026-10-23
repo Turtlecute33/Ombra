@@ -1,0 +1,201 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Navigation -->
+    <string name="nav_connect">Connect</string>
+    <string name="nav_locations">Locations</string>
+    <string name="nav_settings">Settings</string>
+
+    <!-- Common -->
+    <string name="action_cancel">Cancel</string>
+    <string name="action_back">Back</string>
+    <string name="action_copy">Copy</string>
+    <string name="action_paste">Paste</string>
+    <string name="action_retry">Try again</string>
+    <string name="action_continue">Continue</string>
+    <string name="action_save">Save</string>
+    <string name="action_dismiss">Dismiss</string>
+    <string name="search_clear">Clear search</string>
+    <string name="copied">Copied. The clipboard clears in a minute.</string>
+    <string name="no_app_for_link">No app on this device can open this</string>
+
+    <!-- Connect: status -->
+    <string name="status_loading">Starting</string>
+    <string name="status_loading_detail">Waiting for the VPN service</string>
+    <string name="status_off">Not protected</string>
+    <string name="status_off_detail">This network sees your IP address and your traffic</string>
+    <string name="status_connecting">Connecting</string>
+    <string name="status_connecting_detail">Racing the relays for the fastest path</string>
+    <string name="status_reconnecting">Reconnecting</string>
+    <string name="status_reconnecting_detail">Traffic waits until the tunnel is back</string>
+    <string name="status_on">Protected</string>
+    <string name="status_on_detail">Your IP address and your traffic stay apart</string>
+    <string name="status_disconnecting">Disconnecting</string>
+    <string name="status_disconnecting_detail">Closing the tunnel</string>
+    <string name="status_problem">Cannot connect</string>
+    <string name="status_problem_retrying">Ombra keeps trying, see below</string>
+    <string name="status_problem_blocked">This needs your action</string>
+
+    <!-- Connect: control -->
+    <string name="control_wait">Please wait</string>
+    <string name="control_always_on">Always-on</string>
+    <string name="always_on_notice">Android keeps Ombra connected (always-on VPN). To disconnect, turn always-on off in Android settings.</string>
+    <string name="battery_hint">Android restricts the battery use of Ombra and can stop the VPN in the background. Set battery use to Unrestricted.</string>
+    <string name="battery_hint_action">Open app settings</string>
+
+    <!-- Connect: route -->
+    <string name="route_this_device">This device</string>
+    <string name="route_internet">Internet</string>
+    <string name="route_entry">Entry relay</string>
+    <string name="route_entry_hint">sees your IP</string>
+    <string name="route_exit">Exit</string>
+    <string name="route_exit_hint">sees your traffic</string>
+    <string name="route_choose_entry">Choose entry relay</string>
+    <string name="route_choose_exit">Choose exit</string>
+    <string name="route_fastest">Fastest</string>
+    <string name="route_fastest_hint">Chosen when you connect</string>
+    <string name="route_any_city">Any city</string>
+
+    <!-- Connect: live stats -->
+    <string name="stats_download">Download</string>
+    <string name="stats_upload">Upload</string>
+    <string name="stats_latency">Latency</string>
+    <string name="stats_latency_value">%1$d ms</string>
+    <string name="stats_protocol">Protocol</string>
+    <string name="stats_session">Session</string>
+    <string name="stats_details">Connection details</string>
+    <string name="unit_bits">bit/s</string>
+    <string name="unit_kilobits">kbit/s</string>
+    <string name="unit_megabits">Mbit/s</string>
+    <string name="unit_gigabits">Gbit/s</string>
+    <string name="protocol_stealth">Stealth</string>
+    <string name="protocol_speed">Speed</string>
+    <string name="protocol_tcp_tls">TCP/TLS</string>
+
+    <!-- Connect: details sheet -->
+    <string name="details_relay">Entry relay</string>
+    <string name="details_relay_address">Relay address</string>
+    <string name="details_exit">Exit server</string>
+    <string name="details_provider">Exit operator</string>
+    <string name="details_transport">Transport</string>
+    <string name="details_exit_key">Exit public key</string>
+    <string name="details_client_key">Your public key</string>
+    <plurals name="details_address_ports">
+        <item quantity="one">%1$s, port %2$s</item>
+        <item quantity="other">%1$s, ports %2$s</item>
+    </plurals>
+    <string name="details_verify_key">Compare the key on the page of %1$s</string>
+    <string name="details_provider_fallback">the exit operator</string>
+    <string name="transport_quic">WireGuard in QUIC</string>
+    <string name="transport_tcp_tls">WireGuard in TCP/TLS</string>
+    <string name="transport_udp">WireGuard over UDP</string>
+
+    <!-- Connect: errors (vpnStatus.connecting.connectError) -->
+    <string name="error_account_expired">Your account has no time left. Add time to connect again.</string>
+    <string name="error_api">The Obscura API answered with an error. Ombra tries again.</string>
+    <string name="error_api_rate_limit">Too many requests to the Obscura API. Ombra tries again in a moment.</string>
+    <string name="error_api_unreachable">Cannot reach the Obscura API. You may be offline, or this network blocks it.</string>
+    <string name="error_invalid_account">Obscura does not accept this account number. Log out and enter it again.</string>
+    <string name="error_no_internet">No internet connection. Ombra connects when the network is back.</string>
+    <string name="error_no_longer_supported">This version of Ombra is too old for the Obscura servers. Update the app.</string>
+    <string name="error_no_relay">Cannot reach any relay. This network may block QUIC (UDP).</string>
+    <string name="error_no_relay_chosen">Cannot reach the entry relay that you chose.</string>
+    <string name="error_no_slots">All device slots of your account are in use. Disconnect another device, or delete a WireGuard configuration on obscura.com.</string>
+    <string name="error_not_logged_in">You are logged out. Log in to connect.</string>
+    <string name="error_udp_handshake">UDP seems blocked on this network. Switch to Stealth?</string>
+    <string name="error_other">The connection failed. Ombra tries again. If this goes on, send a debug bundle from Settings.</string>
+    <string name="fix_switch_to_stealth">Switch to Stealth</string>
+    <string name="fix_use_tcp_tls">Use TCP/TLS</string>
+    <string name="fix_use_fastest_relay">Use fastest relay</string>
+    <string name="fix_open_account">Open account</string>
+    <string name="start_consent_denied">Ombra needs the VPN permission to connect. If another VPN app is set to always-on, turn that off first.</string>
+    <string name="start_other_always_on">Another VPN is set to always-on in Android settings. Turn it off there to use Ombra.</string>
+    <string name="start_open_vpn_settings">Open VPN settings</string>
+    <string name="account_inactive_notice">Your account has no time left. Add time to connect.</string>
+
+    <!-- Request errors (login, create account, settings) -->
+    <string name="request_error_unreachable">Cannot reach the Obscura API. Check your connection and try again.</string>
+    <string name="request_error_rate_limit">Too many attempts. Wait a moment and try again.</string>
+    <string name="request_error_signup_limit">Too many new accounts from this network. Try again in a few hours.</string>
+    <string name="request_error_api">The Obscura API answered with an error. Try again.</string>
+    <string name="request_error_invalid_account">Obscura does not accept this account number.</string>
+    <string name="request_error_too_old">This version of Ombra is too old. Update the app.</string>
+    <string name="request_error_save">Ombra could not save the account on this device.</string>
+    <string name="request_error_timeout">The request took too long. Try again.</string>
+    <string name="request_error_core">The VPN service does not answer. Try again.</string>
+    <string name="request_error_not_allowed">This build of Ombra does not allow this.</string>
+    <string name="request_error_other">Something went wrong. Try again.</string>
+
+    <!-- Onboarding -->
+    <string name="welcome_tagline">A private, fast client for the Obscura VPN.</string>
+    <string name="welcome_point_account">No email, no password: one random account number.</string>
+    <string name="welcome_point_hops">Two hops. The relay sees your IP, the exit sees your traffic, no server sees both.</string>
+    <string name="welcome_point_tracking">No analytics, no trackers, no ads.</string>
+    <string name="welcome_login">I have an account number</string>
+    <string name="welcome_create">Create an account</string>
+    <string name="welcome_independent">Ombra is an independent, open-source app. It is not made by Obscura.</string>
+    <string name="login_title">Log in</string>
+    <string name="login_body">Enter your 20-digit account number. Ombra checks it on this device before it contacts Obscura.</string>
+    <string name="login_field">Account number</string>
+    <string name="login_progress">%1$d of 20 digits</string>
+    <string name="login_typo">This number has a typo. Check the digits.</string>
+    <string name="login_valid">The number looks right</string>
+    <string name="login_action">Log in</string>
+    <string name="create_title">Create an account</string>
+    <string name="create_point_number">Ombra makes a random 20-digit account number on this device. It is your only login.</string>
+    <string name="create_point_secret">Anyone with the number can use your account. Keep it secret and safe.</string>
+    <string name="create_trial_checking">Checking for a free trial</string>
+    <string name="create_trial_available">A free trial is available</string>
+    <string name="create_trial_unavailable">No free trial at the moment. Add time on obscura.com after you create the account.</string>
+    <string name="create_trial_unknown">Ombra could not check for a free trial.</string>
+    <string name="create_action">Create account</string>
+    <string name="create_action_trial">Start free trial</string>
+    <string name="create_terms">By creating an account you accept the Obscura terms of service and privacy policy.</string>
+    <string name="create_terms_link">Read the terms</string>
+    <string name="new_account_title">Your account number</string>
+    <string name="new_account_body">Write it down or save it in a password manager. It is the only way to log in, and nobody can recover it.</string>
+    <string name="new_account_reveal">Show account number</string>
+    <string name="new_account_saved">I saved my account number</string>
+    <string name="new_account_active">This account is active. You can connect now.</string>
+    <string name="new_account_inactive">This account has no time yet. Add time on obscura.com to connect.</string>
+    <string name="new_account_done">Done</string>
+    <string name="new_account_add_time">Add time on obscura.com</string>
+    <string name="new_account_other">Use another account number</string>
+    <string name="new_account_other_title">Leave this account?</string>
+    <string name="new_account_other_confirm">Ombra logs out of the new account. Without its number, nobody can use it again.</string>
+    <string name="new_account_other_action">Leave</string>
+    <string name="new_account_clip_label">Obscura account number</string>
+
+    <!-- Start -->
+    <string name="startup_slow">The VPN service does not answer</string>
+    <string name="startup_slow_detail">Close Ombra and open it again. If this goes on, restart the phone.</string>
+
+    <!-- Settings -->
+    <string name="settings_title">Settings</string>
+    <string name="settings_connection">Connection</string>
+    <string name="settings_auto_connect">Connect when Ombra opens</string>
+    <string name="settings_auto_connect_detail">For a VPN that is always on, use Always-on VPN in Android settings</string>
+    <string name="settings_account">Account</string>
+    <string name="settings_logout">Log out</string>
+    <string name="settings_logout_detail">Disconnects and removes the account from this device</string>
+    <string name="settings_logout_confirm">Log out of Ombra? Make sure you saved your account number: you need it to log in again.</string>
+    <string name="settings_appearance">Appearance</string>
+    <string name="settings_theme">Theme</string>
+    <string name="settings_theme_system">System</string>
+    <string name="settings_theme_dark">Dark</string>
+    <string name="settings_theme_light">Light</string>
+    <string name="settings_dynamic_color">Wallpaper colours</string>
+    <string name="settings_dynamic_color_detail">Use the colours of your wallpaper instead of the Ombra colours</string>
+    <string name="settings_privacy">Privacy</string>
+    <string name="settings_secure_all">Block screenshots everywhere</string>
+    <string name="settings_secure_all_detail">Screens with your account number are always blocked</string>
+    <string name="settings_advanced">Advanced</string>
+    <string name="settings_console">Core console</string>
+    <string name="settings_console_detail">Debug builds only: send raw commands to the Rust core</string>
+    <string name="settings_about">About</string>
+
+    <!-- Debug console -->
+    <string name="console_title">Core console</string>
+    <string name="console_command">Command (JSON)</string>
+    <string name="console_send">Send</string>
+    <string name="console_error">Error: %1$s</string>
+</resources>

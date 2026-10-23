@@ -83,7 +83,7 @@ fn test_other_error_json() {
 
 impl Os for WindowsOsImpl {
     async fn set_os_network_config(&self, network_config: OsNetworkConfig, tunnel: QuicWgConnPacketSender) -> Result<(), ()> {
-        tracing::info!(message_id = "HSSPAPbp", "manager called set_tunnel_network_config: {:?}", network_config);
+        tracing::info!(message_id = "HSSPAPbp", "manager called set_tunnel_network_config");
         let result = self
             .tun
             .set_config(network_config.mtu, network_config.ipv4, network_config.ipv6, &network_config.dns)

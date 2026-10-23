@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Static shortcuts. Labels never carry user data: the launcher can read them. -->
+<!-- targetPackage is the applicationId, so src/debug/res/xml/shortcuts.xml overrides this file for .debug. -->
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_connect"
+        android:shortcutDisabledMessage="@string/shortcut_disabled"
+        android:shortcutId="connect"
+        android:shortcutLongLabel="@string/shortcut_connect_long"
+        android:shortcutShortLabel="@string/shortcut_connect_short">
+        <intent
+            android:action="app.ombra.action.CONNECT"
+            android:targetClass="app.ombra.ui.ShortcutActivity"
+            android:targetPackage="app.ombra.debug" />
+    </shortcut>
+    <shortcut
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_disconnect"
+        android:shortcutDisabledMessage="@string/shortcut_disabled"
+        android:shortcutId="disconnect"
+        android:shortcutLongLabel="@string/shortcut_disconnect_long"
+        android:shortcutShortLabel="@string/shortcut_disconnect_short">
+        <intent
+            android:action="app.ombra.action.DISCONNECT"
+            android:targetClass="app.ombra.ui.ShortcutActivity"
+            android:targetPackage="app.ombra.debug" />
+    </shortcut>
+</shortcuts>

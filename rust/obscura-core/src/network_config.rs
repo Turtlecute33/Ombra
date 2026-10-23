@@ -4,8 +4,8 @@ use crate::config::LocalNetworkAccess;
 use crate::config::{TailscaleBypass, WireGuardBypass};
 #[cfg(target_os = "android")]
 use crate::local_network::{Route, tunnel_routes};
-use ipnetwork::Ipv6Network;
-use obscuravpn_api::types::ObfuscatedTunnelConfig;
+use ipnetwork::{IpNetwork, Ipv6Network};
+use obscuravpn_api::types::{ObfuscatedTunnelConfig, WgClientConfig, WgServerConfig};
 use serde::{Deserialize, Serialize};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use strum::EnumIs;
@@ -39,6 +39,32 @@ impl TunnelNetworkConfig {
         Ok(Self { dns, ipv4, ipv6, mtu })
     }
 
+    /// Speed mode (Ombra patch P5): the first IPv4 and IPv6 address of the client and the DNS servers of a
+    /// `TunnelConfig::UdpPort`.
+    pub fn from_udp(client: &WgClientConfig, server: &WgServerConfig, mtu: u16) -> Result<Self, NetworkConfigError> {
+        let dns = server.dnses.clone();
+        if dns.is_empty() {
+            return Err(NetworkConfigError::NoDns);
+        }
+        let ipv4 = client
+            .addresses
+            .iter()
+            .find_map(|address| match address {
+                IpNetwork::V4(address) => Some(address.ip()),
+                IpNetwork::V6(_) => None,
+            })
+            .ok_or(NetworkConfigError::NoIpv4Ip)?;
+        let ipv6 = client
+            .addresses
+            .iter()
+            .find_map(|address| match address {
+                IpNetwork::V4(_) => None,
+                IpNetwork::V6(address) => Some(*address),
+            })
+            .ok_or(NetworkConfigError::NoIpv6Ip)?;
+        Ok(Self { dns, ipv4, ipv6, mtu })
+    }
+
     fn dummy() -> Self {
         Self {
             dns: vec![IpAddr::V4(Ipv4Addr::new(10, 64, 0, 99))],
@@ -57,6 +83,8 @@ pub enum NetworkConfigError {
     NoIpv6Ip,
     #[error("no dns")]
     NoDns,
+    #[error("no ipv4 endpoint")]
+    NoIpv4Endpoint,
 }
 
 #[derive(Clone, Copy, Debug, Default, EnumIs, PartialEq, Eq, Serialize, Deserialize)]
@@ -90,7 +118,7 @@ impl DnsContentBlock {
 }
 
 // Keep synchronized with:
-// - android/app/src/main/java/net/obscura/vpnclientapp/services/OsNetworkConfig.kt
+// - Ombra: app/src/main/java/app/ombra/core/model/ (Kotlin model of OsNetworkConfig)
 // - apple/shared/NetworkExtensionIpc.swift
 //
 // Avoid adding information with high-frequency of change to this type, to prevent triggering frequent changes OS network configuration, which can't be deduplicated by checking for changes.
@@ -167,5 +195,55 @@ impl OsNetworkConfig {
             #[cfg(target_os = "linux")]
             wireguard_bypass,
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use obscuravpn_api::types::WgPubkey;
+
+    fn udp_port_config(addresses: &[&str], dnses: &[&str]) -> (WgClientConfig, WgServerConfig) {
+        let client = WgClientConfig { wg_pubkey: WgPubkey([1; 32]), addresses: addresses.iter().map(|a| a.parse().unwrap()).collect() };
+        let server = WgServerConfig {
+            wg_pubkey: WgPubkey([2; 32]),
+            endpoints: vec!["192.0.2.10:51820".parse().unwrap()],
+            dnses: dnses.iter().map(|d| d.parse().unwrap()).collect(),
+        };
+        (client, server)
+    }
+
+    #[test]
+    fn udp_port_config_gives_the_first_address_of_each_family() {
+        let (client, server) = udp_port_config(
+            &[
+                "fc00:bbbb:bbbb:bb01::1:2/128",
+                "10.75.0.2/32",
+                "10.75.0.3/32",
+                "fc00:bbbb:bbbb:bb01::1:3/128",
+            ],
+            &["10.64.0.1"],
+        );
+        let config = TunnelNetworkConfig::from_udp(&client, &server, 1400).unwrap();
+        assert_eq!(
+            config,
+            TunnelNetworkConfig {
+                dns: vec!["10.64.0.1".parse().unwrap()],
+                ipv4: "10.75.0.2".parse().unwrap(),
+                ipv6: "fc00:bbbb:bbbb:bb01::1:2/128".parse().unwrap(),
+                mtu: 1400,
+            }
+        );
+    }
+
+    #[test]
+    fn udp_port_config_needs_both_families_and_dns() {
+        let missing = |addresses: &[&str], dnses: &[&str]| {
+            let (client, server) = udp_port_config(addresses, dnses);
+            TunnelNetworkConfig::from_udp(&client, &server, 1280).unwrap_err().to_string()
+        };
+        assert_eq!(missing(&["fc00::2/128"], &["10.64.0.1"]), "no ipv4 ip");
+        assert_eq!(missing(&["10.75.0.2/32"], &["10.64.0.1"]), "no ipv6 ip");
+        assert_eq!(missing(&["10.75.0.2/32", "fc00::2/128"], &[]), "no dns");
     }
 }

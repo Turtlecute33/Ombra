@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- FileProvider roots. Only the debug bundles that Rust writes to cache/debug-archives. -->
+<paths>
+    <cache-path
+        name="debug-archives"
+        path="debug-archives/" />
+</paths>

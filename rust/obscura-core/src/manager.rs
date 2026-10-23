@@ -22,7 +22,7 @@ use crate::{
     backoff::Backoff,
     cached_value::CachedValue,
     client_state::{AccountStatus, ClientState, ClientStateHandle},
-    config::{Config, ConfigLoadError, PinnedLocation, feature_flags::FeatureFlags},
+    config::{Config, ConfigLoadError, PinnedLocation, cached::ConfigCached, feature_flags::FeatureFlags},
     debug_bundle::{
         bundle_info::BundleInfo,
         create_debug_bundle,
@@ -38,6 +38,7 @@ use crate::{
     network_config::DnsContentBlock,
     os::os_trait::Os,
     quicwg::TransportKind,
+    relay_selection::RelaySelector,
     tunnel_state::TunnelState,
     wg_key_store::WgKeyStore,
 };
@@ -134,10 +135,31 @@ pub enum VpnStatus {
     Disconnected {},
 }
 
+/// Every field after `exit` is an Ombra addition (patch P1) with a serde default, so upstream JSON and older
+/// config files still decode.
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct TunnelArgs {
     pub exit: ExitSelector,
+    #[serde(default)]
+    pub relay: RelaySelector,
+    #[serde(default)]
+    pub mode: TunnelMode,
+    /// Tunnel MTU in `TunnelMode::WireguardUdp`. The other modes ignore it.
+    #[serde(default)]
+    pub udp_mtu: Option<u16>,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone, Copy, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum TunnelMode {
+    /// WireGuard in QUIC datagrams to the relay (upstream behaviour).
+    #[default]
+    Quic,
+    /// WireGuard over TLS over TCP to the relay, the same as the `tcpTlsTunnel` feature flag.
+    TcpTls,
+    /// Plain WireGuard over UDP to the relay (Ombra patch P5).
+    WireguardUdp,
 }
 
 impl VpnStatus {
@@ -159,6 +181,7 @@ impl VpnStatus {
                 network_config: _,
                 offset_traffic_stats: _,
                 network_interface: _,
+                relay_transport: _,
                 tunnel_id: _,
             } => VpnStatus::Connected {
                 tunnel_args: args.clone(),
@@ -202,6 +225,10 @@ impl Manager {
 
     pub async fn maybe_update_exits(&self, freshness: Duration) -> Result<(), ApiError> {
         self.client_state.maybe_update_exits(freshness).await.map(|_| ())
+    }
+
+    pub async fn maybe_update_relays(&self, freshness: Duration) -> Result<(), ApiError> {
+        self.client_state.maybe_update_relays(freshness).await.map(|_| ())
     }
 
     pub fn subscribe(&self) -> Receiver<Status> {
@@ -389,24 +416,32 @@ impl Manager {
         if let Some(conn) = self.tunnel_state.borrow().get_conn() {
             conn.wake();
         }
+        crate::tunnel_state::retry_connect_now();
     }
 
     pub async fn get_exit_list(&self, known_version: Option<Vec<u8>>) -> Result<CachedValue<Arc<ExitList>>, ManagerCmdErrorCode> {
+        self.wait_for_list(known_version, |config| config.cached_exits.as_ref()).await
+    }
+
+    pub async fn get_relay_list(&self, known_version: Option<Vec<u8>>) -> Result<CachedValue<Arc<Vec<OneRelay>>>, ManagerCmdErrorCode> {
+        self.wait_for_list(known_version, |config| config.cached_relays.as_ref()).await
+    }
+
+    /// Waits until the cached list exists and its version differs from `known_version`.
+    async fn wait_for_list<T>(
+        &self,
+        known_version: Option<Vec<u8>>,
+        cached_list: impl Fn(&Config) -> Option<&ConfigCached<Arc<T>>>,
+    ) -> Result<CachedValue<Arc<T>>, ManagerCmdErrorCode> {
         let mut watch = self.client_state.subscribe();
         let client_state = watch
-            .wait_for(|client_state| {
-                client_state
-                    .config()
-                    .cached_exits
-                    .clone()
-                    .is_some_and(|e| Some(e.version_bytes()) != known_version.as_deref())
-            })
+            .wait_for(|client_state| cached_list(client_state.config()).is_some_and(|list| Some(list.version_bytes()) != known_version.as_deref()))
             .await
             .map_err(|error| {
-                tracing::error!(?error, message_id = "ahcieM1h", "exit list subscription channel closed: {}", error,);
+                tracing::error!(?error, message_id = "ahcieM1h", "list subscription channel closed: {}", error,);
                 ManagerCmdErrorCode::Other
             })?;
-        let cached = client_state.config().cached_exits.clone().unwrap();
+        let cached = cached_list(client_state.config()).unwrap();
         Ok(CachedValue {
             version: cached.version_bytes().to_vec(),
             last_updated: cached.last_updated,
@@ -428,4 +463,179 @@ pub struct ManagerTrafficStats {
     pub tx_bytes: u64,
     pub rx_bytes: u64,
     pub latest_latency_ms: u16,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::{cached::Version, save};
+    use crate::manager_cmd::ManagerCmd;
+    use crate::os::os_trait::RecordingOs;
+    use obscuravpn_api::types::{CityCode, CountryCode};
+    use serde_json::json;
+    use tempfile::tempdir;
+    use tokio::time::timeout;
+
+    /// `ONE_RELAY` of CoreModelTest.kt.
+    fn one_relay_json() -> serde_json::Value {
+        json!({
+            "id": "relay-1",
+            "country_code": "DE",
+            "city_code": "fra",
+            "city_name": "Frankfurt",
+            "preferred_exits": [{"id": "FRA-001"}],
+            "ip_v4": "192.0.2.10",
+            "ports": [443, 8443],
+            "tls_cert": "MIIBszCCAVmgAwIBAgIUQ0VSVA==",
+        })
+    }
+
+    /// A manager on a config dir that has `config`. Nothing in it uses the network while it is not logged in.
+    fn manager(config: &Config, os: Arc<RecordingOs>) -> (Arc<Manager>, tempfile::TempDir) {
+        let dir = tempdir().unwrap();
+        save(dir.path(), config).unwrap();
+        // A closed network interface channel only stops the task that follows it.
+        let network_interface = channel(None).1;
+        let manager = Manager::new(dir.path().into(), WgKeyStore::None, "test".into(), os, network_interface, None, true).unwrap();
+        (manager, dir)
+    }
+
+    #[tokio::test]
+    async fn relay_list_long_poll() {
+        let relay: OneRelay = serde_json::from_value(one_relay_json()).unwrap();
+        let config = Config {
+            cached_relays: Some(ConfigCached::new(Arc::new(vec![relay]), Version::ETag(vec![0, 1, 2]))),
+            ..Default::default()
+        };
+        let (manager, _dir) = manager(&config, Default::default());
+
+        let ok = ManagerCmd::GetRelayList { known_version: None }.run(&manager, None).await.unwrap();
+        let json = serde_json::to_value(ok).unwrap();
+        assert_eq!(json["version"], "AAEC");
+        assert!(json["last_updated"].is_u64());
+        assert_eq!(json["value"], json!([one_relay_json()]));
+
+        // The client already has this version, so the call waits for a new one.
+        assert!(
+            timeout(Duration::from_millis(200), manager.get_relay_list(Some(vec![0, 1, 2])))
+                .await
+                .is_err()
+        );
+    }
+
+    #[tokio::test]
+    async fn refresh_os_network_config_reaches_the_os() {
+        let os = Arc::new(RecordingOs::default());
+        let (manager, _dir) = manager(&Config::default(), os.clone());
+
+        let ok = ManagerCmd::RefreshOsNetworkConfig {}.run(&manager, None).await.unwrap();
+        assert_eq!(serde_json::to_string(&ok).unwrap(), "null");
+        timeout(Duration::from_secs(5), async {
+            while !os.calls().contains(&"forget") {
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .expect("the tunnel loop did not forget the OS network config");
+    }
+
+    #[test]
+    fn transport_kind_json() {
+        assert_eq!(serde_json::to_value(TransportKind::WireguardUdp).unwrap(), json!("wireguardUdp"));
+        assert_eq!(serde_json::to_value(TransportKind::TcpTls).unwrap(), json!("tcpTls"));
+    }
+
+    #[test]
+    fn upstream_tunnel_args_decode_with_defaults() {
+        let args: TunnelArgs = serde_json::from_value(json!({"exit": {"any": {}}})).unwrap();
+        assert_eq!(
+            args,
+            TunnelArgs { exit: ExitSelector::Any {}, relay: RelaySelector::Any {}, mode: TunnelMode::Quic, udp_mtu: None }
+        );
+
+        // A config.json written before patch P1.
+        let config: Config = serde_json::from_value(json!({
+            "tunnel_active": true,
+            "tunnel_args": {"exit": {"country": {"country_code": "US"}}},
+        }))
+        .unwrap();
+        assert_eq!(
+            config.tunnel_args,
+            TunnelArgs { exit: ExitSelector::Country { country_code: CountryCode("US".into()) }, ..Default::default() }
+        );
+        assert!(config.tunnel_active);
+    }
+
+    #[test]
+    fn tunnel_args_json_matches_kotlin() {
+        // The shapes of app/src/test/java/app/ombra/core/model/CoreModelTest.kt.
+        let quic = json!({
+            "exit": {"city": {"country_code": "US", "city_code": "nyc"}},
+            "relay": {"country": {"country_code": "DE"}},
+            "mode": "quic",
+            "udpMtu": null,
+        });
+        let wireguard_udp = json!({
+            "exit": {"exit": {"id": "NYC-001"}},
+            "relay": {"relay": {"id": "relay-1"}},
+            "mode": "wireguardUdp",
+            "udpMtu": 1400,
+        });
+        for json in [quic, wireguard_udp.clone()] {
+            let args: TunnelArgs = serde_json::from_value(json.clone()).unwrap();
+            assert_eq!(serde_json::to_value(&args).unwrap(), json);
+        }
+        let args: TunnelArgs = serde_json::from_value(wireguard_udp).unwrap();
+        assert_eq!(args.relay, RelaySelector::Relay { id: "relay-1".into() });
+        assert_eq!(args.mode, TunnelMode::WireguardUdp);
+        assert_eq!(args.udp_mtu, Some(1400));
+
+        assert_eq!(serde_json::to_value(TunnelMode::TcpTls).unwrap(), json!("tcpTls"));
+        assert_eq!(
+            serde_json::to_value(TunnelArgs::default()).unwrap(),
+            json!({"exit": {"any": {}}, "relay": {"any": {}}, "mode": "quic", "udpMtu": null})
+        );
+    }
+
+    #[test]
+    fn set_tunnel_args_from_kotlin_and_upstream() {
+        let cmd: ManagerCmd = serde_json::from_value(json!({"setTunnelArgs": {
+            "args": {
+                "exit": {"any": {}},
+                "relay": {"city": {"country_code": "de", "city_code": "fra"}},
+                "mode": "tcpTls",
+                "udpMtu": null,
+            },
+            "active": true,
+        }}))
+        .unwrap();
+        let ManagerCmd::SetTunnelArgs { args: Some(args), active: Some(true) } = cmd else {
+            panic!("unexpected command {cmd:?}");
+        };
+        let fra = CityCode { country_code: CountryCode("de".into()), city_code: "fra".into() };
+        assert_eq!(
+            args,
+            TunnelArgs { relay: RelaySelector::City { city_code: fra }, mode: TunnelMode::TcpTls, ..Default::default() }
+        );
+
+        let cmd: ManagerCmd = serde_json::from_value(json!({"setTunnelArgs": {"args": {"exit": {"any": {}}}, "active": true}})).unwrap();
+        assert!(matches!(cmd, ManagerCmd::SetTunnelArgs { args: Some(args), active: Some(true) } if args == TunnelArgs::default()));
+    }
+
+    #[test]
+    fn connecting_status_carries_the_full_tunnel_args() {
+        let status = VpnStatus::Connecting {
+            tunnel_args: TunnelArgs::default(),
+            connect_error: Some(ConnectErrorCode::NoRelay),
+            reconnecting: false,
+        };
+        assert_eq!(
+            serde_json::to_value(status).unwrap(),
+            json!({"connecting": {
+                "tunnelArgs": {"exit": {"any": {}}, "relay": {"any": {}}, "mode": "quic", "udpMtu": null},
+                "connectError": "noRelay",
+                "reconnecting": false,
+            }})
+        );
+    }
 }

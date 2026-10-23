@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="400" viewBox="0 0 1280 400" role="img" aria-label="Ombra: a fast, private Android client for Obscura VPN">
+  <defs>
+    <radialGradient id="glow" cx="200" cy="200" r="520" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FF6025" stop-opacity="0.42"/>
+      <stop offset="0.45" stop-color="#FF6025" stop-opacity="0.10"/>
+      <stop offset="1" stop-color="#FF6025" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="route" gradientUnits="userSpaceOnUse" x1="48" y1="0" x2="560" y2="0">
+      <stop offset="0" stop-color="#FF6025"/>
+      <stop offset="1" stop-color="#FFB08F"/>
+    </linearGradient>
+    <pattern id="dots" width="24" height="24" patternUnits="userSpaceOnUse">
+      <circle cx="2" cy="2" r="1.2" fill="#FFFFFF" fill-opacity="0.06"/>
+    </pattern>
+    <clipPath id="card"><rect width="1280" height="400" rx="28"/></clipPath>
+  </defs>
+
+  <g clip-path="url(#card)">
+    <rect width="1280" height="400" fill="#121316"/>
+    <rect width="1280" height="400" fill="url(#dots)"/>
+    <rect width="1280" height="400" fill="url(#glow)"/>
+    <!-- Large shadow of the moon mark, bottom right -->
+    <g transform="translate(1180 330) scale(9) translate(-54 -54)" opacity="0.05">
+      <path fill="#FFFFFF" d="M54,30 A24,24 0 0,0 54,78 A10,24 0 0,1 54,30 Z"/>
+    </g>
+  </g>
+
+  <!-- App mark: the moon disc in light and shadow on the brand orange -->
+  <rect x="110" y="110" width="180" height="180" rx="48" fill="#FF6025"/>
+  <g transform="translate(200 200) scale(2.25) translate(-54 -54)">
+    <path fill="#FFFFFF" d="M54,30 A24,24 0 0,0 54,78 A10,24 0 0,1 54,30 Z"/>
+    <path fill="#1B1D20" d="M54,30 A10,24 0 0,0 54,78 A24,24 0 0,0 54,30 Z"/>
+  </g>
+
+  <g font-family="Manrope, Inter, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+    <text x="346" y="186" fill="#FFFFFF" font-size="92" font-weight="800" letter-spacing="-2">Ombra</text>
+    <text x="350" y="236" fill="#B9BDC4" font-size="27" font-weight="500">A fast, private Android client for Obscura VPN</text>
+
+    <!-- Two hops: your phone, the relay that sees your IP, the exit that sees your traffic -->
+    <g transform="translate(350 282)">
+      <path d="M48 22 H 560" stroke="url(#route)" stroke-width="3" stroke-linecap="round" stroke-dasharray="2 10"/>
+      <circle cx="48" cy="22" r="9" fill="#121316" stroke="#FF6025" stroke-width="3"/>
+      <circle cx="304" cy="22" r="9" fill="#121316" stroke="#FF8A5C" stroke-width="3"/>
+      <circle cx="560" cy="22" r="9" fill="#121316" stroke="#FFB08F" stroke-width="3"/>
+      <text x="48" y="66" fill="#D9DCE1" font-size="19" font-weight="600" text-anchor="middle">Your phone</text>
+      <text x="304" y="66" fill="#D9DCE1" font-size="19" font-weight="600" text-anchor="middle">Relay · sees your IP</text>
+      <text x="560" y="66" fill="#D9DCE1" font-size="19" font-weight="600" text-anchor="middle">Exit · sees traffic</text>
+    </g>
+  </g>
+</svg>

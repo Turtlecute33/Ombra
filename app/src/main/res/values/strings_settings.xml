@@ -1,0 +1,217 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Settings overview -->
+    <string name="settings_vpn">VPN</string>
+    <string name="settings_app">App</string>
+    <string name="settings_dns">DNS</string>
+    <string name="settings_split">Split tunnelling</string>
+    <string name="settings_lan">Local network access</string>
+    <string name="settings_lan_detail">Lets apps reach printers and other devices on this network</string>
+    <string name="settings_lan_lockdown">Lets apps reach local devices. Block connections without VPN can stop this.</string>
+    <string name="settings_kill_switch">Kill switch</string>
+    <string name="settings_advanced_summary">WireGuard key, hosts, diagnostics</string>
+    <string name="settings_about_summary">Version %1$s, who sees what, licences</string>
+    <string name="onoff_on">On</string>
+    <string name="onoff_off">Off</string>
+    <string name="onoff_unknown">Unknown</string>
+    <string name="summary_speed">%1$s, MTU %2$d</string>
+    <string name="summary_padding">%1$s, with padding</string>
+    <string name="summary_dns_tunnel">Obscura DNS through the tunnel</string>
+    <plurals name="summary_dns_blocking">
+        <item quantity="one">Obscura DNS, %1$d block list</item>
+        <item quantity="other">Obscura DNS, %1$d block lists</item>
+    </plurals>
+    <plurals name="summary_dns_custom">
+        <item quantity="one">Custom: %1$s</item>
+        <item quantity="other">Custom: %1$s and %2$d more</item>
+    </plurals>
+    <string name="summary_dns_network">Network DNS, outside the tunnel</string>
+    <string name="summary_split_off">Off: all apps use the VPN</string>
+    <plurals name="summary_split_exclude">
+        <item quantity="one">%1$d app bypasses the VPN</item>
+        <item quantity="other">%1$d apps bypass the VPN</item>
+    </plurals>
+    <plurals name="summary_split_include">
+        <item quantity="one">Only %1$d app uses the VPN</item>
+        <item quantity="other">Only %1$d apps use the VPN</item>
+    </plurals>
+    <string name="summary_split_include_none">Only chosen apps: none chosen, so all apps use the VPN</string>
+    <string name="summary_theme_system">Theme follows the system</string>
+    <string name="summary_theme_dark">Dark theme</string>
+    <string name="summary_theme_light">Light theme</string>
+
+    <!-- Kill switch -->
+    <string name="kill_switch_always_on">Always-on VPN</string>
+    <string name="kill_switch_always_on_detail">Android starts Ombra at boot and keeps it on</string>
+    <string name="kill_switch_lockdown">Block connections without VPN</string>
+    <string name="kill_switch_lockdown_detail">No app can use the network while the tunnel is down</string>
+    <string name="kill_switch_open">Open Android VPN settings</string>
+    <string name="kill_switch_open_detail">Only Android can turn these on: tap the gear next to Ombra</string>
+    <string name="kill_switch_note">Even with both on, Android itself checks the connection and looks for Wi-Fi sign-in pages outside the tunnel.</string>
+    <string name="kill_switch_unknown">Ombra can read these after its first connect. Set them under the gear next to Ombra.</string>
+
+    <!-- Account -->
+    <string name="account_active">Active</string>
+    <string name="account_inactive">No time left</string>
+    <string name="account_unknown">Not checked yet</string>
+    <string name="account_active_left">Active, %1$s</string>
+    <string name="account_renews">Renews on %1$s</string>
+    <string name="account_time_left">%1$s, until %2$s</string>
+    <plurals name="time_left_days">
+        <item quantity="one">%1$d day left</item>
+        <item quantity="other">%1$d days left</item>
+    </plurals>
+    <plurals name="time_left_hours">
+        <item quantity="one">%1$d hour left</item>
+        <item quantity="other">%1$d hours left</item>
+    </plurals>
+    <string name="time_left_under_hour">less than an hour left</string>
+    <string name="account_inactive_detail">Add time to connect again.</string>
+    <string name="account_unknown_detail">Ombra gets the account status from Obscura after the login.</string>
+    <string name="account_funding">Paid with: %1$s</string>
+    <string name="funding_trial">free trial</string>
+    <string name="funding_top_up">top-up</string>
+    <string name="funding_subscription">subscription on obscura.com</string>
+    <string name="funding_google_play">Google Play</string>
+    <string name="funding_app_store">App Store</string>
+    <string name="account_trial_until">Free trial until %1$s</string>
+    <string name="account_checked">Checked %1$s</string>
+    <string name="account_checked_now">Checked just now</string>
+    <string name="account_not_checked">Not checked</string>
+    <string name="account_check">Check now</string>
+    <string name="account_checking">Checking</string>
+    <string name="account_add_time">Add time</string>
+    <string name="account_add_time_note">Opens obscura.com in your browser. The link holds your account number, so the browser history keeps it.</string>
+    <string name="account_number">Account number</string>
+    <string name="account_number_masked">Account number, hidden</string>
+    <string name="account_number_note">Anyone with this number can use your account. A copy leaves the clipboard after a minute.</string>
+    <string name="account_reveal">Show</string>
+    <string name="account_hide">Hide</string>
+    <string name="account_this_device">On this device</string>
+    <string name="account_delete">Delete account</string>
+    <string name="account_delete_detail">Removes the account from Obscura for ever</string>
+    <string name="account_delete_title">Delete your account?</string>
+    <string name="account_delete_first">Obscura deletes the account and Ombra logs out. Time that is left on the account is lost, and Obscura cannot give it back.</string>
+    <string name="account_delete_final_title">This cannot be undone</string>
+    <string name="account_delete_final">Delete the account now? If you log in with the same number later, Obscura makes a new, empty account.</string>
+    <string name="account_delete_action">Delete for ever</string>
+
+    <!-- Connection -->
+    <string name="connection_protocol">Protocol</string>
+    <string name="connection_stealth_detail">WireGuard inside QUIC. Looks like web traffic and passes most firewalls, but is slower than Speed.</string>
+    <string name="connection_speed_detail">Plain WireGuard over UDP. The fastest, but networks can see and block it.</string>
+    <string name="connection_tcp_detail">For networks that block UDP. The slowest: use it only when the other two fail.</string>
+    <string name="connection_protocol_note">A change while connected reconnects at once.</string>
+    <string name="connection_speed_options">Speed</string>
+    <string name="connection_mtu">Tunnel MTU</string>
+    <plurals name="connection_mtu_value">
+        <item quantity="one">%1$d byte</item>
+        <item quantity="other">%1$d bytes</item>
+    </plurals>
+    <string name="connection_mtu_detail">Larger packets are faster. If pages stall, go back to 1280, which works on all networks.</string>
+    <string name="connection_stealth_options">Stealth</string>
+    <string name="connection_padding">Packet padding</string>
+    <string name="connection_padding_detail">Gives all packets that this phone sends the same size. Packets from the relay keep their sizes. Uses more upload bandwidth.</string>
+    <string name="connection_small_mtu">Small-MTU compatibility</string>
+    <string name="connection_small_mtu_detail">For networks that drop large packets. Lowers the speed a little.</string>
+    <string name="connection_stealth_note">These apply from the next connect.</string>
+    <string name="connection_stealth_only">These work only with Stealth.</string>
+    <string name="connection_start">Start</string>
+
+    <!-- DNS -->
+    <string name="dns_private_dns">Private DNS is set to %1$s in Android settings. Android then sends DNS queries there, so the settings on this page do not apply.</string>
+    <string name="dns_private_dns_action">Open network settings</string>
+    <string name="dns_blocking">Block lists</string>
+    <string name="dns_block_ads">Ads</string>
+    <string name="dns_block_trackers">Trackers</string>
+    <string name="dns_block_malware">Malware</string>
+    <string name="dns_block_adult">Adult content</string>
+    <string name="dns_block_gambling">Gambling</string>
+    <string name="dns_block_social">Social media</string>
+    <string name="dns_blocking_note">Mullvad DNS blocks these names. This works only on exits that Mullvad runs.</string>
+    <string name="dns_blocking_not_mullvad">The exit in use is not run by Mullvad, so the block lists do not apply now.</string>
+    <string name="dns_blocking_off">Block lists work only with Obscura DNS: custom servers or network DNS turn them off.</string>
+    <string name="dns_custom">Custom DNS servers</string>
+    <string name="dns_custom_note">They replace Obscura DNS. Queries go through the tunnel, except to a server on your local network while Local network access is on. The server sees the names you look up.</string>
+    <string name="dns_add_label">IPv4 or IPv6 address</string>
+    <string name="dns_add_placeholder">9.9.9.9</string>
+    <string name="dns_add">Add</string>
+    <string name="dns_remove">Remove %1$s</string>
+    <string name="dns_problem_address">Enter an IP address, not a name</string>
+    <string name="dns_problem_loopback">This address is the phone itself</string>
+    <string name="dns_problem_unspecified">This address points to no server</string>
+    <string name="dns_problem_multicast">A multicast address cannot be a DNS server</string>
+    <string name="dns_problem_duplicate">This server is in the list already</string>
+    <string name="dns_expert">Expert</string>
+    <string name="dns_system">Use the network\'s DNS</string>
+    <string name="dns_system_detail">DNS queries go outside the tunnel. The network sees every name you look up.</string>
+    <string name="dns_system_confirm_title">Send DNS outside the tunnel?</string>
+    <string name="dns_system_confirm">This is a DNS leak on purpose: the network you are on, often your provider, sees every name you look up. Use it only where the network needs its own DNS.</string>
+    <string name="dns_system_confirm_action">Use network DNS</string>
+
+    <!-- Split tunnelling -->
+    <string name="split_off">Off</string>
+    <string name="split_off_detail">All apps use the VPN</string>
+    <string name="split_exclude">All apps except the chosen ones</string>
+    <string name="split_exclude_detail">The chosen apps bypass the VPN</string>
+    <string name="split_include">Only the chosen apps</string>
+    <string name="split_include_detail">Other apps bypass the VPN</string>
+    <string name="split_note">Apps that bypass the VPN show your IP address. Ombra itself always stays outside the tunnel. Changes apply at once.</string>
+    <string name="split_lockdown">Block connections without VPN is on: Android gives apps that bypass the VPN no network at all.</string>
+    <plurals name="split_apps_excluded">
+        <item quantity="one">%1$d app bypasses the VPN</item>
+        <item quantity="other">%1$d apps bypass the VPN</item>
+    </plurals>
+    <plurals name="split_apps_included">
+        <item quantity="one">%1$d app uses the VPN</item>
+        <item quantity="other">%1$d apps use the VPN</item>
+    </plurals>
+    <string name="split_include_empty">No app is chosen yet. Until you choose one, all apps use the VPN.</string>
+    <string name="split_search">Search apps</string>
+    <string name="split_show_system">Show system apps</string>
+    <string name="split_show_system_detail">Settings, camera and other apps of the phone maker</string>
+    <string name="split_no_match">No app matches the search.</string>
+    <string name="split_app_missing">App not installed</string>
+
+    <!-- Advanced -->
+    <string name="advanced_key">WireGuard key</string>
+    <string name="advanced_rotate">New key pair</string>
+    <string name="advanced_rotate_detail">Ombra uses the new key from the next connect</string>
+    <string name="advanced_rotate_action">Rotate</string>
+    <string name="advanced_rotated">Rotated</string>
+    <string name="advanced_key_when_connected">Shows while connected</string>
+    <string name="advanced_hosts">Hosts</string>
+    <string name="advanced_sni">Relay SNI host</string>
+    <string name="advanced_sni_detail">The name that the relay connection shows to the network</string>
+    <string name="advanced_api_host">Backup API host</string>
+    <string name="advanced_api_host_detail">A second address for the Obscura API, for when the first one is blocked</string>
+    <string name="advanced_host_default">Default</string>
+    <string name="advanced_host_invalid">Enter a host name, for example cdn.example.org</string>
+    <string name="advanced_hosts_note">For networks that block Obscura. Leave empty for the default. The SNI host applies at the next connect, the API host at once.</string>
+    <string name="advanced_details">Relay, exit and keys</string>
+    <string name="advanced_details_detail">Compare the exit key with the key of its operator</string>
+    <string name="advanced_details_off">Connect to see them</string>
+    <string name="advanced_diagnostics">Diagnostics</string>
+    <string name="advanced_logs">Keep detailed logs</string>
+    <string name="advanced_logs_detail">Saved on this phone for a debug bundle. Applies after a restart. Off deletes them at once.</string>
+    <string name="advanced_bundle_detail">Collects logs and network tests into one file that you can share</string>
+
+    <!-- Debug bundle -->
+    <string name="bundle_title">Debug bundle</string>
+    <string name="bundle_intro">A debug bundle helps to find the cause of connection problems. Read what it does before you make one.</string>
+    <string name="bundle_fact_probes">It tests the network from this phone: it contacts apple.com, google.com and the Obscura API.</string>
+    <string name="bundle_fact_logs">It holds the logs of the VPN core, the Android log of Ombra (logcat) and the settings of the VPN core, with network details such as addresses and interfaces.</string>
+    <string name="bundle_fact_private">It leaves out your account number and your private WireGuard key.</string>
+    <string name="bundle_fact_share">The file stays on this phone. Ombra sends it nowhere: you choose where to share it.</string>
+    <string name="bundle_feedback">What went wrong? (optional)</string>
+    <string name="bundle_feedback_hint">For example: no connection on mobile data since this morning</string>
+    <string name="bundle_create">I agree, make the bundle</string>
+    <string name="bundle_creating">Making the bundle. This can take a few minutes: keep this page open.</string>
+    <string name="bundle_ready">The bundle is ready. Ombra keeps only the newest one.</string>
+    <string name="bundle_share">Share the bundle</string>
+    <string name="bundle_share_failed">This build cannot share files</string>
+
+    <!-- Appearance -->
+    <string name="appearance_hide_details">Hide details in the notification</string>
+    <string name="appearance_hide_details_detail">The notification and the tile do not show the exit city</string>
+</resources>

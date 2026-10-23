@@ -2,7 +2,8 @@ use clap::Parser;
 use obscuravpn_api::types::AccountId;
 use obscuravpn_client::client_state::ClientState;
 use obscuravpn_client::config::feature_flags::FeatureFlagKey;
-use obscuravpn_client::exit_selection::{ExitSelectionState, ExitSelector};
+use obscuravpn_client::exit_selection::ExitSelectionState;
+use obscuravpn_client::manager::TunnelArgs;
 use obscuravpn_client::wg_key_store::WgKeyStore;
 use std::sync::Arc;
 use std::time::Duration;
@@ -38,9 +39,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         client_state.set_account_id(Some((account_id, None)))?;
     }
 
+    let tunnel_args = TunnelArgs::default();
+    let relay_transport = client_state.borrow().target_state().relay_transport;
     let mut exit_selection_state = ExitSelectionState::default();
     let conn = loop {
-        match client_state.connect(&ExitSelector::Any {}, None, &mut exit_selection_state).await {
+        match client_state
+            .connect(&tunnel_args, &relay_transport, None, &mut exit_selection_state)
+            .await
+        {
             Ok(connection) => break connection.conn,
             Err(error) => tracing::error!(message_id = "XrH7uWBj", "connection attempt failed: {error}"),
         }

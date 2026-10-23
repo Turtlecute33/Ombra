@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Themed icon: the lit crescent solid, the shadow side translucent. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M54,30 A24,24 0 0,0 54,78 A10,24 0 0,1 54,30 Z" />
+    <path
+        android:fillColor="#66FFFFFF"
+        android:pathData="M54,30 A10,24 0 0,0 54,78 A24,24 0 0,0 54,30 Z" />
+</vector>

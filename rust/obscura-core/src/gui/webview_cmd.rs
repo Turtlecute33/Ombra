@@ -7,7 +7,7 @@ use obscuravpn_client::linux::ipc::run_command;
 use obscuravpn_client::linux::status::NavigationView;
 use obscuravpn_client::linux::status_watch::GuiStatusWatch;
 use obscuravpn_client::manager::TunnelArgs;
-use obscuravpn_client::manager_cmd::ManagerCmd;
+use obscuravpn_client::manager_cmd::{ManagerCmd, redacted_json_error};
 use obscuravpn_client::ui_config::{ColorScheme, UiConfigHandle};
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
@@ -27,18 +27,37 @@ pub(crate) struct WebviewCmdContext {
 }
 
 // Ref: https://github.com/Sovereign-Engineering/obscuravpn-client-internal/blob/50ae1ec989463f1ff2a5b7ee12d11f58a1de5c1a/apple/client/command.swift#L9-L33
-#[derive(Debug, Deserialize)]
+#[derive(derive_more::Debug, Deserialize)]
 #[serde(rename_all = "camelCase", rename_all_fields = "camelCase")]
 enum WebviewCmd {
-    DebugBundle { user_feedback: String },
-    GetOsStatus { known_version: Option<Uuid> },
-    SetColorScheme { value: ColorScheme },
-    SetNavigationView { view: NavigationView },
-    JsonFfiCmd { cmd: String, timeout_ms: Option<serde_json::Number> },
-    StartTunnel { tunnel_args: String },
+    DebugBundle {
+        user_feedback: String,
+    },
+    GetOsStatus {
+        known_version: Option<Uuid>,
+    },
+    SetColorScheme {
+        value: ColorScheme,
+    },
+    SetNavigationView {
+        view: NavigationView,
+    },
+    JsonFfiCmd {
+        // The JSON of a login has the account number.
+        #[debug(skip)]
+        cmd: String,
+        timeout_ms: Option<serde_json::Number>,
+    },
+    StartTunnel {
+        tunnel_args: String,
+    },
     StopTunnel {},
-    RevealItemInDir { path: String },
-    RestartService { enable: bool },
+    RevealItemInDir {
+        path: String,
+    },
+    RestartService {
+        enable: bool,
+    },
     LinuxAddOperator {},
     RestartApp {},
     RegisterAsLoginItem {},
@@ -61,7 +80,11 @@ impl WebviewCmdContext {
         let cmd: WebviewCmd = match serde_json::from_str(command_json.as_str()) {
             Ok(cmd) => cmd,
             Err(error) => {
-                tracing::error!(message_id = "Xv2hRp6C", %error, command = command_json.as_str(), "failed to parse webview command");
+                tracing::error!(
+                    message_id = "Xv2hRp6C",
+                    error = redacted_json_error(&error),
+                    "failed to parse webview command"
+                );
                 reply.return_error_message(LinuxErrorCode::Other.as_static_str());
                 return;
             }
@@ -114,7 +137,11 @@ impl WebviewCmd {
                 let mgr_cmd: ManagerCmd = match serde_json::from_str(&cmd) {
                     Ok(mgr_cmd) => mgr_cmd,
                     Err(error) => {
-                        tracing::error!(message_id = "Wn6cVd3Q", %error, %cmd, "failed to parse ffi command");
+                        tracing::error!(
+                            message_id = "Wn6cVd3Q",
+                            error = redacted_json_error(&error),
+                            "failed to parse ffi command"
+                        );
                         return Err(LinuxErrorCode::Other);
                     }
                 };

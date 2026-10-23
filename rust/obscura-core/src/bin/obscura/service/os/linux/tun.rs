@@ -55,7 +55,7 @@ impl Tun {
     }
 
     pub fn interface(&self) -> NetworkInterface {
-        NetworkInterface { name: TUN_NAME.to_string(), index: self.interface_index }
+        NetworkInterface { name: TUN_NAME.to_string(), index: self.interface_index, network_handle: 0, mtu_hint: None }
     }
 
     pub fn send(&self, packet: Bytes) {
@@ -117,7 +117,7 @@ impl Tun {
         if let Err(error) = self.dev.add_address_v4(ipv4, 32u8)
             && error.kind() != AlreadyExists
         {
-            tracing::error!(message_id = "cY11X3I6", ?error, address = ?ipv4, "failed to add IPv4 tun address");
+            tracing::error!(message_id = "cY11X3I6", ?error, "failed to add IPv4 tun address");
             result = Err(());
         }
         if let Err(error) = std::fs::write(format!("/proc/sys/net/ipv6/conf/{TUN_NAME}/disable_ipv6"), "0") {
@@ -126,7 +126,7 @@ impl Tun {
         if let Err(error) = self.dev.add_address_v6(ipv6.network(), ipv6.prefix())
             && error.kind() != AlreadyExists
         {
-            tracing::error!(message_id = "wHod6P2h", ?error, address = ?ipv6, "failed to add IPv6 tun address");
+            tracing::error!(message_id = "wHod6P2h", ?error, "failed to add IPv6 tun address");
             result = Err(());
         }
 
@@ -143,7 +143,7 @@ impl Tun {
                     if let Err(error) = self.dev.remove_address(address)
                         && error.kind() != AddrNotAvailable
                     {
-                        tracing::error!(message_id = "Th5DBPqt", ?error, ?address, "failed to remove tun address");
+                        tracing::error!(message_id = "Th5DBPqt", ?error, "failed to remove tun address");
                         result = Err(());
                     }
                 }

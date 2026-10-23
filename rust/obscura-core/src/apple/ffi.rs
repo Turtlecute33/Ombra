@@ -28,6 +28,7 @@ pub extern "C" fn initialize_apple_system_logging(log_dir: FfiStr) -> *mut LogPe
         log_persistence = crate::logging::init(
             tracing_oslog::OsLogger::new("net.obscura.rust-apple", "default"),
             cfg!(target_os = "ios").then(|| log_dir.as_str().as_ref()),
+            false,
         )
     });
     log_persistence.map(Box::new).map(Box::into_raw).unwrap_or(std::ptr::null_mut())
@@ -166,7 +167,7 @@ pub unsafe extern "C" fn set_network_interface(global: *const Global, index: u32
             .map_err(|_| tracing::error!(message_id = "Y8aRUbjp", index, "network interface index out of range"))
             .ok(),
     }
-    .map(|index| NetworkInterface { index, name: name.as_str().to_string() });
+    .map(|index| NetworkInterface { index, name: name.as_str().to_string(), network_handle: 0, mtu_hint: None });
     global.os_impl.set_network_interface(network_interface);
 }
 

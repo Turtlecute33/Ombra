@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="locations_title">Locations</string>
+    <string name="locations_exit">Exit</string>
+    <string name="locations_entry">Entry relay</string>
+    <string name="locations_search">Search a country or city</string>
+    <string name="locations_fastest_exit">Fastest exit</string>
+    <string name="locations_fastest_relay">Fastest relay</string>
+    <string name="locations_fastest_hint">Ombra picks the best one when you connect</string>
+    <string name="locations_pinned">Pinned</string>
+    <string name="locations_all">All locations</string>
+    <plurals name="locations_cities">
+        <item quantity="one">%1$d city</item>
+        <item quantity="other">%1$d cities</item>
+    </plurals>
+    <plurals name="locations_servers">
+        <item quantity="one">%1$d server</item>
+        <item quantity="other">%1$d servers</item>
+    </plurals>
+    <string name="locations_datacenter">Data centre %1$d</string>
+    <string name="locations_tier">Tier %1$d</string>
+    <string name="locations_connected">Connected</string>
+    <string name="locations_use">Use</string>
+    <string name="locations_pin">Pin %1$s</string>
+    <string name="locations_unpin">Unpin %1$s</string>
+    <string name="locations_show_cities">Show the cities of %1$s</string>
+    <string name="locations_hide_cities">Hide the cities of %1$s</string>
+    <string name="locations_show_servers">Show the servers in %1$s</string>
+    <string name="locations_hide_servers">Hide the servers in %1$s</string>
+    <string name="locations_loading">Loading the list</string>
+    <string name="locations_missing">No list yet</string>
+    <string name="locations_missing_exits">Ombra has no exit list yet. Load it from Obscura.</string>
+    <string name="locations_missing_relays">Ombra has no relay list yet. This version of the VPN core may not give one. Fastest relay always works.</string>
+    <string name="locations_empty">No locations</string>
+    <string name="locations_empty_detail">The list from Obscura has no servers. Load it again.</string>
+    <string name="locations_refresh">Load the list</string>
+    <string name="locations_no_match">Nothing found for “%1$s”</string>
+    <string name="locations_no_match_detail">Search for a country, a city or a two-letter country code.</string>
+</resources>

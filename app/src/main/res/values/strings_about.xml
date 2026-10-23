@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="about_version">Version %1$s (%2$d)</string>
+    <string name="about_who_sees">Who sees what</string>
+    <string name="about_party_relay">Obscura: the relay and your account</string>
+    <string name="about_party_relay_detail">Sees your IP address, account number and payments. Cannot read your traffic: it is encrypted for the exit.</string>
+    <string name="about_party_exit">Mullvad: the exit</string>
+    <string name="about_party_exit_detail">Sees the sites you visit and your DNS queries. Does not see your IP address or your account: only the relay talks to it.</string>
+    <string name="about_party_ombra">Ombra, this app</string>
+    <string name="about_party_ombra_detail">Has no servers, no analytics and no trackers. Only the VPN core talks to the network.</string>
+    <string name="about_who_sees_note">No single company sees both who you are and what you do. To link the two, Obscura and Mullvad would have to work together.</string>
+    <string name="about_credits">Credits</string>
+    <string name="about_upstream">Obscura VPN client</string>
+    <string name="about_upstream_detail">Ombra uses its VPN core, by Sovereign Engineering Inc., under the GPL-3.0</string>
+    <string name="about_source">Ombra source code</string>
+    <string name="about_source_detail">An independent app, not made by Obscura. GPL-3.0.</string>
+    <string name="about_licences">Licences</string>
+    <string name="about_licences_detail">GPL-3.0, the fonts and the libraries</string>
+    <string name="about_trademarks">WireGuard is a registered trademark of Jason A. Donenfeld.</string>
+    <string name="about_help">Help</string>
+    <string name="about_terms">Obscura terms and privacy</string>
+    <string name="about_terms_detail">The rules of the service that you use</string>
+
+    <!-- Speed test tips (docs/research/perf-plan.md section 5) -->
+    <string name="tips_title">Speed test tips</string>
+    <string name="tips_summary">How to compare the protocols fairly</string>
+    <string-array name="tips">
+        <item>Test all protocols in the same place, with the same exit city, the screen on, the phone not charging, battery saver off and other VPNs off.</item>
+        <item>Speed should come close to plain WireGuard. Stealth needs more processor time. TCP/TLS is the slowest.</item>
+        <item>Do 5 rounds, with the protocols in a random order in each round. Compare the middle result (the median), not the best one.</item>
+        <item>Test download and upload apart. With Stealth, the upload in the first 10 seconds can be lower than later.</item>
+        <item>Test once on Wi-Fi and once on mobile data. Write down the signal strength.</item>
+        <item>Turn packet padding off for a fair test: it costs upload bandwidth.</item>
+        <item>If you can, use your own iperf3 server. Public speed test servers can be busy or limit the speed.</item>
+    </string-array>
+
+    <!-- Licences -->
+    <string name="licences_intro">Ombra is free software under the GPL-3.0. These parts come from other projects.</string>
+    <string name="licences_row">%1$s · %2$s</string>
+    <string name="licences_missing">This build does not have this text</string>
+    <string name="licence_gpl">GNU GPL 3.0</string>
+    <string name="licence_apache">Apache License 2.0</string>
+    <string name="licence_ofl">SIL Open Font License 1.1</string>
+    <string name="licence_rust_crates">Rust crate licences</string>
+    <string name="component_ombra">This app</string>
+    <string name="component_obscura">VPN core by Sovereign Engineering Inc.</string>
+    <string name="component_rust_crates">Libraries of the VPN core</string>
+    <string name="component_compose">UI, Foundation and Material 3, by Google</string>
+    <string name="component_androidx">Core, Activity, Annotation, Lifecycle, Navigation 3 and ProfileInstaller, by Google</string>
+    <string name="component_kotlin">Standard library, kotlinx.coroutines and kotlinx.serialization, by JetBrains</string>
+    <string name="component_symbols">Icons by Google</string>
+    <string name="component_manrope">Font by the Manrope Project Authors</string>
+    <string name="component_jetbrains_mono">Font by the JetBrains Mono Project Authors</string>
+</resources>

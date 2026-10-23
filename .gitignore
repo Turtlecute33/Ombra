@@ -1,0 +1,19 @@
+# Gradle and Kotlin
+build/
+.gradle/
+.kotlin/
+local.properties
+
+# IDE and OS
+*.iml
+.idea/
+.DS_Store
+
+# Signing material (see scripts/make-release-key.sh)
+*.keystore
+*.jks
+keystore.properties
+
+# Native build output (scripts/build-rust.zsh)
+app/src/main/jniLibs/
+rust/obscura-core/target/

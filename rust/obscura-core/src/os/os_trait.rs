@@ -16,6 +16,10 @@ pub trait Os: Sync + Send + 'static {
 
     /// Will be called when a packet from the relay is received on the tunnel, which should be emitted on the tunnel device.
     fn packet_for_os(&self, packet: Bytes);
+
+    /// Forget the network config in place, so the next `set_os_network_config` applies its config even when it is the
+    /// same. Routing stays as it is until then. Only implementations that skip unchanged configs need it.
+    fn forget_os_network_config(&self) {}
 }
 
 /// Revocable [`Os`] access: after [`RevocableOs::revoke`] returns, network config calls block forever and packets are dropped.
@@ -64,5 +68,48 @@ impl<O: Os> Os for RevocableOs<O> {
         let Ok(os_impl_guard) = self.inner.try_read() else { return };
         let Some(os_impl) = os_impl_guard.as_deref() else { return };
         os_impl.packet_for_os(packet);
+    }
+
+    fn forget_os_network_config(&self) {
+        let Ok(os_impl_guard) = self.inner.try_read() else { return };
+        let Some(os_impl) = os_impl_guard.as_deref() else { return };
+        os_impl.forget_os_network_config();
+    }
+}
+
+/// An [`Os`] for tests: it records the calls it gets and does nothing else.
+#[cfg(test)]
+#[derive(Default)]
+pub(crate) struct RecordingOs {
+    calls: std::sync::Mutex<Vec<&'static str>>,
+}
+
+#[cfg(test)]
+impl RecordingOs {
+    pub fn calls(&self) -> Vec<&'static str> {
+        self.calls.lock().unwrap().clone()
+    }
+
+    fn record(&self, call: &'static str) {
+        self.calls.lock().unwrap().push(call);
+    }
+}
+
+#[cfg(test)]
+impl Os for RecordingOs {
+    async fn set_os_network_config(&self, _network_config: OsNetworkConfig, _tunnel: QuicWgConnPacketSender) -> Result<(), ()> {
+        self.record("set");
+        Ok(())
+    }
+
+    async fn unset_os_network_config(&self) -> Result<(), ()> {
+        self.record("unset");
+        Ok(())
+    }
+
+    fn packet_for_os(&self, _packet: Bytes) {}
+
+    fn forget_os_network_config(&self) {
+        self.record("forget");
     }
 }

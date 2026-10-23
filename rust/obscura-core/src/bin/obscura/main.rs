@@ -158,7 +158,7 @@ impl ServiceCommand {
         };
         #[cfg(not(target_os = "linux"))]
         let base_layer: Box<dyn Layer<Registry> + Send + Sync> = Box::new(fmt::Layer::default().with_writer(std::io::stderr));
-        logging::init(base_layer, persistence_dir.as_deref())
+        logging::init(base_layer, persistence_dir.as_deref(), false)
     }
 }
 

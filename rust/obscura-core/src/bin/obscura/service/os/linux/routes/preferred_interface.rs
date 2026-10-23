@@ -98,7 +98,10 @@ async fn get_preferred_network_interface(handle: &rtnetlink::Handle) -> anyhow::
             .filter_map(|attr| if let LinkAttribute::IfName(name) = attr { Some(name) } else { None })
             .next()
             .context("no name attribute for interface")?;
-        let default_route = DefaultRoute { network_interface: NetworkInterface { index: interface_index, name: interface_name }, metric };
+        let default_route = DefaultRoute {
+            network_interface: NetworkInterface { index: interface_index, name: interface_name, network_handle: 0, mtu_hint: None },
+            metric,
+        };
         tracing::info!(message_id = "IBDybsCC", "found default route: {default_route:?}");
         if highest_priority_default_route.as_ref().is_none_or(|current| metric < current.metric) {
             highest_priority_default_route = Some(default_route)

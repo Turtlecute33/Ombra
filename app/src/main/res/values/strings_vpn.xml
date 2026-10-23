@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Strings of the :vpn process: notification and Quick Settings tile. Never put user data here. -->
+<resources>
+    <string name="state_reconnecting">Reconnecting</string>
+    <string name="state_cannot_connect">Cannot connect</string>
+    <string name="notification_exit_city">Exit in %1$s</string>
+    <string name="notification_waiting_for_network">Waiting for an internet connection</string>
+    <string name="notification_problem_udp_handshake">Speed mode gets no reply. UDP can be blocked on this network. Open Ombra to use Stealth.</string>
+    <string name="notification_problem_account_expired">Your account has expired. Open Ombra to add time.</string>
+    <string name="notification_problem_no_slots">Your account has five active devices. Disconnect one, then try again.</string>
+    <string name="notification_problem_login">Open Ombra and log in again.</string>
+    <string name="notification_problem_update">This version of Ombra is too old to connect. Update the app.</string>
+</resources>

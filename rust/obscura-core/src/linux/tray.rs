@@ -179,7 +179,10 @@ impl TrayState {
                 label: "Quick Connect".to_owned(),
                 checked: quick_connect_checked,
                 activate: Box::new(|this: &mut Self| {
-                    this.spawn_manager_cmd(ManagerCmd::SetTunnelArgs { args: Some(TunnelArgs { exit: ExitSelector::Any {} }), active: Some(true) })
+                    this.spawn_manager_cmd(ManagerCmd::SetTunnelArgs {
+                        args: Some(TunnelArgs { exit: ExitSelector::Any {}, ..Default::default() }),
+                        active: Some(true),
+                    })
                 }),
                 ..Default::default()
             }
@@ -208,7 +211,10 @@ impl TrayState {
                     label: format!("{city_name}, {}", pinned.country_code.to_uppercase()),
                     checked,
                     activate: Box::new(move |this: &mut Self| {
-                        this.spawn_manager_cmd(ManagerCmd::SetTunnelArgs { args: Some(TunnelArgs { exit: selector.clone() }), active: Some(true) })
+                        this.spawn_manager_cmd(ManagerCmd::SetTunnelArgs {
+                            args: Some(TunnelArgs { exit: selector.clone(), ..Default::default() }),
+                            active: Some(true),
+                        })
                     }),
                     ..Default::default()
                 }
@@ -238,7 +244,10 @@ impl TrayState {
                     label: format!("{city_name}, {}", city_code.country_code.0.to_uppercase()),
                     checked: true,
                     activate: Box::new(move |this: &mut Self| {
-                        this.spawn_manager_cmd(ManagerCmd::SetTunnelArgs { args: Some(TunnelArgs { exit: selector.clone() }), active: Some(true) })
+                        this.spawn_manager_cmd(ManagerCmd::SetTunnelArgs {
+                            args: Some(TunnelArgs { exit: selector.clone(), ..Default::default() }),
+                            active: Some(true),
+                        })
                     }),
                     ..Default::default()
                 }

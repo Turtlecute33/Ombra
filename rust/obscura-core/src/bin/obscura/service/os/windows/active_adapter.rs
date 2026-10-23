@@ -117,6 +117,8 @@ fn get_active_adapter(tun_luid: u64) -> Result<Option<NetworkInterface>, ()> {
     Ok(Some(NetworkInterface {
         name: adapter.friendly_name.clone(),
         index,
+        network_handle: 0,
+        mtu_hint: None,
         ip: IpAddr::V4(ip),
         mtu,
     }))

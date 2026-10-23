@@ -1,0 +1,103 @@
+# rust/obscura-core: upstream and our patches
+
+`rust/obscura-core` is the `rustlib/` directory of the Obscura VPN client, vendored, plus our patches.
+
+| Item | Value |
+|---|---|
+| Upstream | https://github.com/Sovereign-Engineering/obscuravpn-client, directory `rustlib/` |
+| Commit | `85ef7e2692dc811a023360f08865bfb90815649c` (2026-10-19, tag.json version 1.182) |
+| Vendor commit here | `rust: vendor upstream obscuravpn-client rustlib at 85ef7e2` (files unchanged, no `target/`) |
+| `rust/LICENSE` | upstream `LICENSE` at the same commit. `about.toml` reads it as `../LICENSE`; its sha256 `5e8dcaf1…` is the `clarify` checksum there. |
+| Git dependencies (`Cargo.lock`) | `obscuravpn-api` `e94483e7`, `neptun` (boringtun fork) `ff3b5555`, `reqwest` fork `87cc6fc6`, `rust-dispatch` `13447cd7` (Apple only) |
+
+Build: `scripts/build-rust.zsh` (NDK 28.0.13004108, API 35, arm64-v8a). It never downloads: it fails
+when the pinned toolchain, a target or a crate is missing (run `cargo fetch --locked` once when online).
+Host tests: `cd rust/obscura-core && cargo test --locked --offline`.
+
+## Our patches
+
+One commit per patch, on top of the vendor commit. Each patch touches only `rust/obscura-core`.
+The JSON protocol stays upstream-compatible: every new field has a serde default.
+
+| Patch | Status | Change |
+|---|---|---|
+| P0 | done | JNI binds to `app.ombra.core.ffi`: exports `Java_app_ombra_core_ffi_Native_*`, class cache `Native$FfiHandle`, `ErrorCodeException`, `Callbacks`. `initialize(configDir, userAgent, byte[] wgSecretKey, boolean persistLogs)`: `persistLogs == false` gives no log files. New `wake` export. Android uses `WgKeyStore::Keychain`: the secret key comes from `wgSecretKey` and new keys go to `Callbacks.ffiStoreWgSecretKey([B)Z`, so `config.json` holds only the public key. Rust clears a pending Java exception after `ffiSetNetworkConfig`, `ffiGetProcessExitReasons`, `ffiStoreWgSecretKey` and a failed `complete` of a `jsonFfi` future. These calls, and the result of each `jsonFfi` command, run in a JNI local frame: the threads that Rust attaches never return to Java, so their local refs would stay until the thread ends. Test `keychain_key_store_keeps_secret_out_of_config`. |
+| P0.1 | done | Android keeps the live TUN when `set_os_network_config` gets the same `OsNetworkConfig` again: Rust gives the new packet sender a `dup` of the TUN fd and does not call `ffiSetNetworkConfig`. Upstream called `establish()` for every connect attempt, so a failing connect replaced the VPN interface once per second. A command that rebuilds the TUN for Java-side settings (P2 `refreshOsNetworkConfig`) must clear the stored config. |
+| P1 | done | `TunnelArgs` gets `relay` (`RelaySelector`: `any`, `relay`, `country`, `city`, the JSON shape of `ExitSelector`), `mode` (`quic`, `tcpTls`, `wireguardUdp`) and `udpMtu`, each with a serde default, so upstream JSON and older `config.json` files decode. The relay selector filters the cached relays before the race; no match fails with `RelaySelectionError::NoMatchingRelay` (`noRelay`). `TargetState.relay_transport` (`RelayTransport`) holds the mode with the settings that apply to it: QUIC uses the SNI relay, `quicFramePadding` and `forceSmallMtu`; TCP/TLS (`mode: tcpTls` or the `tcpTlsTunnel` flag) uses only the SNI relay. A change that affects the live tunnel reconnects at once, other changes do nothing. While connecting, new tunnel args drop the last connect error, which belonged to the old args (for example `udpHandshakeFailed` after a switch from Speed mode to QUIC). `wireguardUdp` is the P5 Speed mode. Tests in `manager.rs`, `relay_selection.rs`, `client_state.rs`, `errors.rs`, `tunnel_state.rs`. |
+| P2 | done | `{"getRelayList":{"knownVersion":<null or base64>}}` is a long-poll like `getExitList` (both use `Manager::wait_for_list`) and returns `{"version","last_updated","value":[OneRelay...]}`. `{"refreshRelayList":{"freshness":<ms>}}` returns `null`. `{"refreshOsNetworkConfig":{}}` returns `null` and bumps `TargetState.os_network_config_refresh`; the tunnel loop then calls the new `Os::forget_os_network_config` (Android: drops the stored P0.1 config, keeps the TUN) and sets the current config again, so Java gets `ffiSetNetworkConfig` while connecting or connected. A connected tunnel stays up; a connect attempt in progress restarts, as for a DNS or LAN change upstream. `TransportKind::WireguardUdp` (`"wireguardUdp"`) for P5. Tests in `manager_cmd.rs`, `manager.rs` (long-poll on a seeded `config.json`), `tunnel_state.rs` (refresh while connecting, with `RecordingOs`). |
+| P3 | done | API DNS (`dns.rs`): `DnsCache` records when each entry came from a system lookup (`resolved_at`, serde default). An entry younger than 1 h answers with no lookup. An expired entry (also the seed and entries of older `config.json` files) answers at once and starts a lookup in the background, as upstream did on every resolve. A miss waits for the lookup. When an API request fails with a connect or timeout error, all entries expire, so a moved API address heals as upstream. A logout or account change keeps no `old_account_ids`. Logs: no `OsNetworkConfig` (tunnel addresses) and no client WireGuard public key; the command `Debug` skips the account number of `login` and the purchase token and JWS of the store commands; JSON errors of commands, invalid config fields and a broken `config.json` give only the error kind and position (`redacted_json_error`), also in the exception to Java. Desktop-only code (not built for Android): no tunnel addresses in the Linux and Windows service, no command JSON in the Linux GUI, no IPC response body. Kept: server addresses, the exit public key, tunnel ids, WireGuard session indexes. Tests in `dns.rs` (resolves `localhost`, no network), `config/dns_cache.rs`, `client_state.rs`, `manager_cmd.rs`, `persistence_test.rs`. |
+| P4 | done | Speed (`docs/research/perf-plan.md` section 2, one commit per item): MTU floor 1350 with the fallback race and large liveness probes (B1), ACK frequency request (threshold 3, 5 ms), off for the process after a QUIC transport error (B2; the threshold stays below quinn BBR's 4-packet minimum window, see `PERF.md` section 5), 256 KiB datagram queue (B3), UDP socket buffers 4 MiB receive and 2 MiB send (B6), batched TUN reads, no quinn call under the WireGuard lock and no copy per packet (C1-C3), packets from the exit as proof of life, with at most 64 outstanding probes (C4), 1 Hz data path stats at DEBUG, never in log files (A2, C5), small WireGuard messages share one padded QUIC packet (E1), one write and flush per TCP/TLS batch (E2). JNI: `static native void setNetworkInterface(FfiHandle handle, String name, int index, long networkHandle, int mtuHint)` (symbol unchanged); `networkHandle` is `Network.getNetworkHandle()` (0: none), `mtuHint` the CLAT-aware MTU (0: unknown). Both are stored in `NetworkInterface` (`network_handle`, `mtu_hint`, serde defaults). Every outer socket of `net::new_socket` (QUIC endpoint, Speed mode, TCP/TLS) is bound with `android_setsocknetwork` from `libandroid` (API 23) when the handle is not 0. The MTU decisions use the smaller of the hint and the interface MTU that Rust reads; another hint for the same network keeps the guard 2 result and the API client. Handover (D1, D2, `handover.rs`): when only the network interface changed, `Handover::decide` keeps the tunnel (same network, only the hint changed), rebinds it, or reconnects. QUIC rebinds the quinn endpoint (`Endpoint::rebind`, new relay CID and a PING) to a new bound socket when a new connection on the new network would make the same MTU choices (floor, small UDP payload), else it reconnects. Speed mode swaps its connected UDP socket and sends a WireGuard keepalive. Both send a liveness probe at once with the strictness after a wake, so a relay that ignores the new address ends the tunnel in about 2 s and the tunnel loop connects again (in Speed mode with a new API tunnel). The TUN fd, the inner addresses and the exit stay. TCP/TLS reconnects on a new network. Tests in `handover.rs`, `quic_tuning.rs`, `net.rs`, `client_state.rs`, `quicwg.rs` (rebind and fallback for QUIC and UDP against the loopback relay) and `tunnel_state.rs` (both Speed mode cases through the tunnel loop). Not verified on a device or against the live relays (`docs/research/perf-plan.md` section 6). |
+| P5 | done | Speed mode, `mode: wireguardUdp` (`docs/research/perf-udp-mode.md` 6.2). The relay race measures the RTT over QUIC (relay selector and SNI setting kept, no MTU floor), then abandons the QUIC handshake. The tunnel is `CreateTunnel::UdpPort {id, label: null, wg_pubkey, relay, exit}` with the exit of the normal exit selection, the same key cache and the same `WgKeyRotationRequired` handling. Data path: `WgSender::Udp`/`WgReceiver::Udp` on a connected UDP socket with the B6 buffers, `try_send` and drop when the buffer is full, no fragmentation, ICMP errors of the path ignored; the first handshake sends a new initiation each second with copies 100 ms apart in between, because the exit drops copies of an initiation that it already answered (upstream QUIC and TCP/TLS keep one initiation); no WireGuard fragment buffer (plain WireGuard has no fragments); first pong, liveness, timers, stats and batching as in QUIC mode; `TransportKind::WireguardUdp`. TUN config from the `UdpPort` addresses (first IPv4 and IPv6) and DNS, MTU `udpMtu` clamped to 1280..=1420 (default 1280), pings to 10.64.0.1; the first IPv4 endpoint is used. No handshake answer in about 5 s: connect error `udpHandshakeFailed`, the next attempts wait 5, 10, 20, 40, then 60 s, never a fallback to QUIC. Lifecycle (`udp_tunnel.rs`): the tunnel id goes into `config.json` (`owned_udp_tunnel_ids`, serde default) before the create call; a lease deletes the API tunnel when dropped, after the socket closed (close guard in `QuicWgConn`) or after a failed connect, also after a failed create call unless the API rejected it (an internal or unknown error can come after the tunnel was made); the create call runs in its own task, so a cancelled connect deletes only after the API answered; leftovers are deleted before each connect, in the disconnected state, on `TunnelLimitExceeded` and at logout (with the old account's client). An id leaves the config when the API deleted the tunnel or answered that it has none (not on no answer, internal error, rate limit, auth errors, `accountExpired`, or an error kind unknown to this client with a 5xx status). Only ids of this list are deleted, plus a tunnel that the API made for our create call with another id (then the connect fails with `InvalidTunnelId`). Tests in `quicwg.rs` (also a path that loses the first two exit answers), `udp_tunnel.rs` (also an in-tunnel ping from a `WgClientConfig`/`WgServerConfig` to a neptun exit on 127.0.0.1, without the API), `network_config.rs`, `errors.rs`, `persistence_test.rs`, and against loopback stand-ins of the API and the relay (`test_relay.rs`) in `client_state.rs` and `tunnel_state.rs`. Not verified against the live relay: `docs/research/perf-udp-mode.md` 1.3. |
+| P6 | done | Relay race (`relay_selection.rs`): a candidate on port 53 counts with 25 ms more RTT (`DNS_PORT_PENALTY`), also for the deadline of the race. Many networks proxy, limit or queue port 53 as DNS: the handshake RTT is the same as on the other ports, but bulk traffic collapses. Device test 2026-10-22 (one Wi-Fi network, one relay): port 53 gave 3 to 5 Mbit/s upload with 0.6 to 3.9 s RTT, ports 443 and 50000 67 to 70 Mbit/s; upstream picked port 53 in 2 of 4 connects (tie at the same RTT, the later answer wins). Port 53 still wins when it is 25 ms faster or the only port that answers. Test `port_53_wins_the_race_only_when_clearly_faster`. |
+| P7 | done | `DatagramCoalescer` also without packet padding, with `Wait::WhenBusy`: a small message after 2 ms without traffic goes out at once, the ones that follow it within 2 ms share a packet (with padding, `Wait::Always` as in P4 E1, until P11). Without it, each inner TCP ACK of a download was its own QUIC packet: on the phone about 1600 packets per second with about 1.5 % lost, each loss a congestion event; with the batches half the packets, almost no losses, and one download stream at 100 to 150 Mbit/s instead of about 60 (`docs/research/device-test.md`). Tests in `datagram_coalescer.rs` and `quicwg.rs` (`without_padding_small_packets_that_follow_closely_share_a_packet`). |
+| P9 | done | Connect retries (`tunnel_state.rs`): after QUIC or TCP/TLS connects that fail in a row, the loop waits 0, 1, 3, 7, 15, then 29 s in addition to the 1 s between all attempts (`connect_retry_delay`). Upstream tries again each second without end (a relay race each second on a captive portal or a network that blocks the relays). A change of the target state (also a new network), a success, a disconnect and `wake` (`retry_connect_now`) end the wait. Speed mode keeps its own P5 backoff. Test `connect_retry_delay_grows_to_about_30_s`. |
+| P10 | done | Data path threads on Android (`android/tunnel.rs`, `android/ffi.rs`, `android/util.rs`). The TUN writes run in their own thread `ombra-tun-tx`, fed by a queue of 1024 packets that drops when it is full: a TUN write runs the receive path of the inner IP stack in the calling thread, and before this the one receive task did receive, decryption and TUN write in sequence. The tokio runtime has one worker thread instead of one per CPU (4 on the phone): the data path tasks then hand packets on without a wakeup of another thread, and the busy thread stays on a fast core. The runtime threads and the writer use SCHED_NORMAL with nice -4; they inherited SCHED_BATCH from the Kotlin thread that starts the core, and a batch thread that wakes up does not preempt. Device test 2026-10-23 (`docs/research/device-test.md`, same Wi-Fi, interleaved): Speed download 4 streams 129-161 -> 283-313 Mbit/s, Stealth with padding 39-46 -> 214-308, upload 91-95 -> 173-226, about half the CPU. Android only, so no host test. |
+| P11 | done | `DatagramCoalescer` (`datagram_coalescer.rs`): also with packet padding, a small message after 2 ms without traffic goes at once (`Wait` removed). With padding such a message went alone in a padded packet after the 2 ms anyway, so the wait only added delay to SYNs, DNS queries and voice frames. Device test 2026-10-23: idle RTT with padding 23.5 -> 20 ms p50, the same uplink per downloaded MB. Tests in `datagram_coalescer.rs` and `quicwg.rs` (`with_padding_small_packets_that_follow_closely_share_a_full_size_packet`). |
+| T1 | done | Test only: `kotlin_contract_test.rs` serializes the commands that Kotlin sends and the results that it decodes (Status with `wireguardUdp` and `udpHandshakeFailed`, lists, account, stats, the Android `OsNetworkConfig`, all wire enum names) and compares them with `app/src/test/resources/core-contract.json`, which the Kotlin `CoreContractTest` reads. After a change of a shape: `OMBRA_WRITE_CONTRACT=1 cargo test --locked --offline kotlin_contract`, then the Kotlin unit tests. |
+
+Speed: `PERF.md` compares upstream with these patches and Speed mode (loopback bench, no device, no real relay).
+
+The Kotlin side of the JNI contract is in `docs/DESIGN.md` section 4, with the 5-argument
+`setNetworkInterface` of P4 (row above). `scripts/build-rust.zsh` fails
+when the exported symbols of the `.so` are not exactly `JNI_OnLoad` plus the 7 `Native` methods.
+
+## How to update upstream
+
+Use zsh. `NEW` is the full upstream commit, `UPSTREAM_CLONE` a clean clone of the upstream repo.
+
+```zsh
+# 1. Read what changed in the parts that our patches touch.
+git -C $UPSTREAM_CLONE diff 85ef7e2..$NEW --stat -- rustlib
+git -C $UPSTREAM_CLONE diff 85ef7e2..$NEW -- rustlib/src/android rustlib/src/wg_key_store rustlib/src/logging.rs
+
+# 2. Export our patch commits (only their rust/obscura-core part).
+vendor=$(git log -1 --format=%H --grep='^rust: vendor upstream' -- rust/obscura-core)
+patches=$(mktemp -d)
+git format-patch -o $patches $vendor..HEAD -- rust/obscura-core
+
+# 3. Re-vendor: replace the whole directory, then commit only rust/.
+git rm -rq rust/obscura-core
+mkdir -p rust/obscura-core
+git -C $UPSTREAM_CLONE archive $NEW rustlib | tar -x -C rust/obscura-core --strip-components=1
+git -C $UPSTREAM_CLONE show $NEW:LICENSE > rust/LICENSE
+git add rust/obscura-core rust/LICENSE
+git commit -m "rust: vendor upstream obscuravpn-client rustlib at ${NEW[1,7]}" -- rust/obscura-core rust/LICENSE
+
+# 4. Apply our patches again, in order, one commit each. Fix conflicts, then `git am --continue`.
+git am -3 $patches/*.patch
+rm -rf $patches
+```
+
+Then:
+
+1. Look for new hard-coded Java names: `grep -rn 'net/obscura\|net_obscura' rust/obscura-core/src`.
+2. Run `cargo test --locked --offline` and `cargo ndk -t arm64-v8a -P 35 clippy --lib --locked --offline` in
+   `rust/obscura-core`, then `scripts/build-rust.zsh`.
+3. Check the licence text and the git dependency revisions in `Cargo.lock` again.
+4. Update the commit and the table at the top of this file.
+
+## Licence notes
+
+This is our reading of the texts, not legal advice.
+
+- rustlib and `obscuravpn-api` are GPL-3.0-only with an additional permission under GPL-3.0 section 7
+  (`rust/LICENSE` lines 14-22; SPDX in `Cargo.toml`: `GPL-3.0-only WITH GPL-3.0-linking-source-exception`).
+- The permission is narrow. It allows you to link or combine the program with OpenSSL, BoringSSL,
+  AWS-LC, ring or other libraries under the OpenSSL or SSLeay licence. The Corresponding Source of a
+  binary must then also include the source of the parts of those libraries that the binary uses.
+  It is not an LGPL-style exception for other code.
+- Ombra loads the library into its own process through JNI, so a distributed APK is a combined work.
+  The app is GPL-3.0-only, and each released APK needs its complete source: app, these patches,
+  build scripts, and the source of aws-lc-sys and ring (for example from `cargo vendor --locked`).
+  A build that is not distributed has no such duty.
+- `obscuravpn-api` at the pinned rev `e94483e7331b521d4d29ee7411a83e4adeffcc9d`: its `LICENSE`
+  (checked in `~/.cargo/git/checkouts/obscuravpn-api-*/e94483e/LICENSE` after `cargo fetch --locked`)
+  is the same file as `rust/LICENSE`, and its `Cargo.toml` has the same SPDX expression.
+- Other git dependencies: `neptun` is BSD-3-Clause, the `reqwest` fork is MIT OR Apache-2.0. The
+  crates.io dependencies must match the `accepted` list in `obscura-core/about.toml`.
+- `app/src/main/assets/licenses/rust-crates.txt` (Licences screen) lists the 267 crates in the Android library:
+  `cargo metadata --format-version 1 --locked --offline --filter-platform aarch64-linux-android`, the normal
+  dependencies of the library, checked against `cargo tree -e normal,no-proc-macro --target aarch64-linux-android`.
+  Make it again after a dependency change.
+- The name "Obscura" and its artwork are trademarks. The code licence does not cover them. Ombra
+  uses its own name and icon.

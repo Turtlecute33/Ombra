@@ -13,6 +13,7 @@ use crate::config::dns_cache::DnsCache;
 use crate::config::feature_flags::FeatureFlags;
 use crate::exit_selection::ExitSelector;
 use crate::manager::TunnelArgs;
+use crate::manager_cmd::redacted_json_error;
 use crate::network_config::{DnsConfig, DnsContentBlock};
 use crate::wg_key_store::{PlaintextWgSecretKey, SealedWgSecretKey, WgKeyStore};
 use boringtun::x25519::StaticSecret;
@@ -25,6 +26,7 @@ use std::time::Duration;
 use strum::EnumIs;
 use tempfile::{NamedTempFile, PersistError};
 use thiserror::Error;
+use uuid::Uuid;
 
 pub(super) const CONFIG_FILE: &str = "config.json";
 
@@ -46,7 +48,8 @@ pub enum ConfigSaveError {
 pub enum ConfigLoadError {
     #[error("could not read config: {0}")]
     ReadError(std::io::Error),
-    #[error("could not deserialize config: {0}")]
+    // Not serde's message: it can quote values of the file, such as the account number or the auth token.
+    #[error("could not deserialize config: {}", redacted_json_error(.0))]
     DeserializeError(serde_json::Error),
     #[error("config not save config: {0}")]
     SaveEror(ConfigSaveError),
@@ -90,7 +93,7 @@ pub fn load(config_dir: &Path, key_store: &WgKeyStore) -> Result<Config, ConfigL
             ConfigLoadError::ReadError(_) => return Err(error),
             ConfigLoadError::DeserializeError(_) => {
                 tracing::error!(
-                    ?error,
+                    %error,
                     config.path =? path,
                     message_id = "Voosh7sa",
                     "Failed to parse config, resetting.");
@@ -288,6 +291,10 @@ pub struct Config {
     pub cached_account_status: Option<AccountStatus>,
     #[serde(skip)]
     pub force_tcp_tls_relay_transport: (), // Removed
+    /// The Speed mode tunnels that this client created and did not delete yet (Ombra patch P5). Each one holds a slot
+    /// of the account until it is deleted. Written before the create call, so a crash leaves no unknown tunnel.
+    #[serde(deserialize_with = "crate::serde_safe::deserialize")]
+    pub owned_udp_tunnel_ids: Vec<Uuid>,
 }
 
 impl Config {
@@ -380,6 +387,7 @@ impl From<Config> for ConfigDebug {
             force_tcp_tls_relay_transport: (),
             tunnel_active,
             tunnel_args,
+            owned_udp_tunnel_ids: _,
         } = config;
         Self {
             api_url,

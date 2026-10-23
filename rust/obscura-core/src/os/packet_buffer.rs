@@ -14,6 +14,9 @@ impl PacketBuffer {
         let remainder = &mut self.buffer[self.buffer_len..];
         (self.lengths_len < self.lengths.len() && remainder.len() > usize::from(u16::MAX)).then_some(remainder)
     }
+    pub fn is_empty(&self) -> bool {
+        self.lengths_len == 0
+    }
     pub fn commit(&mut self, size: u16) {
         self.buffer_len += usize::from(size);
         self.lengths[self.lengths_len] = size;
