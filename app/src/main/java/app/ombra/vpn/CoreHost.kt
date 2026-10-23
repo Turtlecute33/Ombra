@@ -127,6 +127,7 @@ object CoreHost {
             core = CoreBridge,
             debugBundles = DebugBundles(appContext.cacheDir, bundleInfo, CoreBridge),
             allowRawCommands = BuildConfig.DEBUG,
+            deleteWgKey = wgKeyVault::delete,
         )
         feed = StateFeed(controller.status, controller.exits, controller.relays, settingsStore.settings, systemState)
         statusView = combine(status, wanted.flow, vpnService, settingsStore.settings, systemState) { current, isWanted, service, settings, system ->
@@ -154,9 +155,13 @@ object CoreHost {
         }
     }
 
-    /** A file that a late log rotation writes after this goes at the next process start. */
+    /**
+     * The logs, and the debug bundle that holds a copy of them. A file that a late log rotation
+     * writes after this goes at the next process start.
+     */
     private fun deleteRustLogs(dir: File) {
         if (!File(dir, RUST_LOG_DIR).deleteRecursively()) Log.w(TAG, "cannot delete all Rust logs")
+        DebugBundles.deleteAll(appContext.cacheDir)
     }
 
     fun updateSystemState(transform: (SystemState) -> SystemState) = systemStateFlow.update(transform)

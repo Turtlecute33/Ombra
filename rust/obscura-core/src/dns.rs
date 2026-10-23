@@ -1,5 +1,6 @@
 use crate::client_state::WeakClientStateHandle;
 use crate::config::dns_cache::CachedAddrs;
+use obscuravpn_api::reexports::reqwest::Url;
 use obscuravpn_api::reexports::reqwest::dns::{Addrs, Name, Resolve, Resolving};
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -27,7 +28,14 @@ impl Resolve for DnsResolver {
                 tracing::warn!(message_id = "F0ZR7dTm", "can't read from DNS cache of dropped client state");
                 CachedAddrs::Missing
             }
-            Some(client_state) => client_state.borrow().config().dns_cache.lookup(name.as_str(), CACHE_TTL),
+            Some(client_state) => {
+                // The API client resolves an alternative host only after the primary host failed, maybe because of
+                // its cached address. That request can then succeed, so the failure would not expire the cache.
+                if !is_base_url_host(&client_state.base_url(), name.as_str()) {
+                    client_state.expire_dns_cache();
+                }
+                client_state.borrow().config().dns_cache.lookup(name.as_str(), CACHE_TTL)
+            }
         };
         let addrs = match cached {
             CachedAddrs::Fresh(addrs) => addrs,
@@ -49,6 +57,13 @@ impl Resolve for DnsResolver {
         let addrs: Addrs = Box::new(addrs.into_iter());
         Box::pin(std::future::ready(Ok(addrs)))
     }
+}
+
+fn is_base_url_host(base_url: &str, name: &str) -> bool {
+    Url::parse(base_url)
+        .ok()
+        .and_then(|url| url.host_str().map(|host| host == name))
+        .unwrap_or(true)
 }
 
 async fn resolve_and_cache(client_state: WeakClientStateHandle, name: String) -> Result<Vec<SocketAddr>, Box<dyn std::error::Error + Send + Sync>> {
@@ -91,7 +106,10 @@ mod tests {
     const NAME: &str = "localhost";
 
     fn client_state(config_dir: &std::path::Path) -> ClientStateHandle {
-        ClientState::new(config_dir.into(), WgKeyStore::None, "test".into(), false).unwrap()
+        let client_state = ClientState::new(config_dir.into(), WgKeyStore::None, "test".into(), false).unwrap();
+        // NAME stands in for the API host.
+        client_state.change_config(|config| config.api_url = Some(format!("https://{NAME}/api")));
+        client_state
     }
 
     fn cached_addr() -> SocketAddr {
@@ -138,6 +156,24 @@ mod tests {
         })
         .await
         .expect("the background lookup did not refresh the cache");
+    }
+
+    #[tokio::test]
+    async fn a_lookup_of_an_alternative_api_host_expires_the_cache() {
+        // The API client resolves an alternative host only after the primary host failed.
+        let dir = tempfile::tempdir().unwrap();
+        let client_state = client_state(dir.path());
+        client_state.update_dns_cache(NAME, &[cached_addr()]);
+        client_state.change_config(|config| config.api_url = Some("https://api.example/api".into()));
+
+        assert_eq!(resolve(&client_state).await, [cached_addr()]);
+        timeout(Duration::from_secs(5), async {
+            while !is_lookup_result(cache(&client_state)) {
+                sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .expect("the cache did not expire");
     }
 
     #[tokio::test]

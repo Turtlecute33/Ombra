@@ -27,6 +27,7 @@ use std::{
     sync::OnceLock,
 };
 use tokio::runtime::Runtime;
+use zeroize::Zeroizing;
 
 pub struct Global {
     pub manager: Arc<Manager>,
@@ -109,12 +110,12 @@ fn initialize(
 
 /// `null` or an empty array means that Java has no stored key. A wrong length is left to the key store, which
 /// logs it and makes a new key.
-fn wg_secret_key_from_java(env: &mut JNIEnv, j_wg_secret_key: &JByteArray) -> Option<Vec<u8>> {
+fn wg_secret_key_from_java(env: &mut JNIEnv, j_wg_secret_key: &JByteArray) -> Option<Zeroizing<Vec<u8>>> {
     if j_wg_secret_key.is_null() {
         return None;
     }
     match env.convert_byte_array(j_wg_secret_key) {
-        Ok(secret_key) => Some(secret_key).filter(|secret_key| !secret_key.is_empty()),
+        Ok(secret_key) => Some(Zeroizing::new(secret_key)).filter(|secret_key| !secret_key.is_empty()),
         Err(error) => {
             clear_pending_exception(env);
             tracing::error!(message_id = "uvJe81GP", ?error, "failed to read wireguard secret key from Java: {error}");

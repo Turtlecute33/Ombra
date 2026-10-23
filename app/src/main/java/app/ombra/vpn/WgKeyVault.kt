@@ -59,6 +59,12 @@ class WgKeyVault(dir: File) {
         false
     }
 
+    /** At logout: the key was the account's. Rust makes and stores a new one at the next connect. */
+    @Synchronized
+    fun delete() {
+        if (file.exists() && !file.delete()) Log.w(TAG, "cannot delete the stored WireGuard key")
+    }
+
     private fun existingKey(): SecretKey? {
         val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
         return (keyStore.getEntry(KEY_ALIAS, null) as? KeyStore.SecretKeyEntry)?.secretKey

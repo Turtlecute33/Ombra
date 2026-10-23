@@ -24,6 +24,11 @@ const SLOW_PONG_WINDOW: u32 = 100;
 /// Ombra patch P4 (B1 guard 2): with the MTU floor, every 10th busy probe is a large one.
 const LARGE_PROBE_INTERVAL: u32 = 10;
 const MAX_LARGE_PROBES_LOST_IN_A_ROW: usize = 3;
+/// After a rebind with the MTU floor, every second one of this many busy probes is large (Ombra patch P4, D1): the new
+/// path is not tested for full-size packets. That gives the [`MAX_LARGE_PROBES_LOST_IN_A_ROW`] losses that end the
+/// tunnel in about 6 s, not 30 s.
+const BUSY_PROBES_WITH_LARGE_CHECKS_AFTER_REBIND: u32 = 6;
+const_assert!(2 * MAX_LARGE_PROBES_LOST_IN_A_ROW == 6);
 /// More than the probes of the longest probe lost period (30 s at one busy probe per second) plus the allowed losses.
 const MAX_OUTSTANDING_PROBES: usize = 64;
 
@@ -43,6 +48,12 @@ pub struct LivenessChecker {
     sent_user_traffic_since_last_ping: bool,
     /// Probes sent after the last packet from the exit (Ombra patch P4, C4).
     probes_sent_since_received_traffic: usize,
+    /// Whether a packet from the exit proves that the tunnel works (C4). Not after a rebind until a probe is answered:
+    /// quinn reads the old socket until a packet comes on the new one, and the relay can send there while the new path
+    /// is dead.
+    traffic_proves_life: bool,
+    /// Busy probes left of [`BUSY_PROBES_WITH_LARGE_CHECKS_AFTER_REBIND`].
+    busy_probes_with_large_checks: u32,
     is_waking: bool,
     outstanding_pongs: VecDeque<SentPing>,
     last_ping_sent_at: Option<WakeInstant>,
@@ -68,6 +79,8 @@ impl LivenessChecker {
             dst_ip: ping_target_ip,
             sent_user_traffic_since_last_ping: false,
             probes_sent_since_received_traffic: 0,
+            traffic_proves_life: true,
+            busy_probes_with_large_checks: 0,
             is_waking: false,
             outstanding_pongs: Default::default(),
             last_ping_sent_at: None,
@@ -105,7 +118,9 @@ impl LivenessChecker {
 
     /// Call for each packet from the exit.
     pub fn received_traffic(&mut self) {
-        self.probes_sent_since_received_traffic = 0;
+        if self.traffic_proves_life {
+            self.probes_sent_since_received_traffic = 0;
+        }
     }
 
     // Call when sending a packet that does not originate from the liveness checker. May return a packet for sending.
@@ -132,10 +147,27 @@ impl LivenessChecker {
         // - Higher risk of broken connection after sleep.
         // - Likely chance that something will use the network (we probably woke for a reason).
         let now = WakeInstant::now();
+        // A wake soon after a rebind must keep its guards until a probe is answered.
+        let (traffic_proves_life, busy_probes_with_large_checks) = (self.traffic_proves_life, self.busy_probes_with_large_checks);
         *self = Self::new(self.mtu, self.large_probe_mtu, self.src_ip, self.dst_ip);
+        self.traffic_proves_life = traffic_proves_life;
+        self.busy_probes_with_large_checks = busy_probes_with_large_checks;
         self.is_waking = true;
         // Immediately test connection after wake.
         self.send_ping(now, false)
+    }
+
+    /// Call after a move to a new socket (Ombra patch P4, D1): as [`Self::wake`], and the new path gets the large probes
+    /// sooner. With `old_socket_reads` (QUIC), packets from the exit prove nothing until a probe is answered. Returns a
+    /// packet for sending.
+    #[must_use = "the returned packet needs to be sent"]
+    pub fn rebind(&mut self, old_socket_reads: bool) -> Vec<u8> {
+        let probe = self.wake();
+        self.traffic_proves_life = !old_socket_reads;
+        if self.large_probe_mtu.is_some() {
+            self.busy_probes_with_large_checks = BUSY_PROBES_WITH_LARGE_CHECKS_AFTER_REBIND;
+        }
+        probe
     }
 
     pub fn poll(&mut self) -> LivenessCheckerPoll {
@@ -248,6 +280,7 @@ impl LivenessChecker {
                 "received liveness checker pong"
             );
             self.is_waking = false;
+            self.traffic_proves_life = true;
             Some(probe_rtt)
         } else {
             tracing::info!(
@@ -291,6 +324,10 @@ impl LivenessChecker {
     fn next_probe_is_large(&mut self, busy: bool) -> bool {
         if !busy || self.large_probe_mtu.is_none() {
             return false;
+        }
+        if self.busy_probes_with_large_checks > 0 {
+            self.busy_probes_with_large_checks -= 1;
+            return self.busy_probes_with_large_checks % 2 == 0;
         }
         self.busy_probes_since_large_probe += 1;
         let large = self.busy_probes_since_large_probe >= LARGE_PROBE_INTERVAL;
@@ -496,6 +533,85 @@ mod tests {
         assert!(matches!(checker.poll_at(now), LivenessCheckerPoll::AliveUntil(_)));
         let (_, now) = busy_tunnel(&mut checker, now, 1, |_| false);
         assert!(matches!(checker.poll_at(now), LivenessCheckerPoll::Dead));
+    }
+
+    #[test]
+    fn after_a_rebind_packets_from_the_exit_prove_nothing_until_a_probe_returns() {
+        let mut checker = LivenessChecker::new(SMALL, None, CLIENT_IP, GATEWAY_IP);
+        let mut now = WakeInstant::now();
+        let _ = checker.rebind(true);
+        for _ in 0..2 {
+            now = now + Duration::from_millis(1001);
+            assert!(checker.sent_traffic_at(now).is_some());
+            // From the old socket: the relay still sends to the old address.
+            checker.received_traffic();
+        }
+        assert!(matches!(checker.poll_at(now + Duration::from_millis(1001)), LivenessCheckerPoll::Dead));
+
+        // A wake (screen on) before the first answer keeps the guard.
+        let mut checker = LivenessChecker::new(SMALL, None, CLIENT_IP, GATEWAY_IP);
+        let _ = checker.rebind(true);
+        let _ = checker.wake();
+        for _ in 0..2 {
+            now = now + Duration::from_millis(1001);
+            assert!(checker.sent_traffic_at(now).is_some());
+            checker.received_traffic();
+        }
+        assert!(matches!(checker.poll_at(now + Duration::from_millis(1001)), LivenessCheckerPoll::Dead));
+
+        // An answered probe shows that the new path works; then packets from the exit count again.
+        let mut checker = LivenessChecker::new(SMALL, None, CLIENT_IP, GATEWAY_IP);
+        let probe = checker.rebind(true);
+        assert!(checker.process_potential_probe_response_at(&pong(&probe), now).is_some());
+        for _ in 0..20 {
+            now = now + Duration::from_millis(1001);
+            assert!(checker.sent_traffic_at(now).is_some());
+            checker.received_traffic();
+            assert!(matches!(checker.poll_at(now), LivenessCheckerPoll::AliveUntil(_)));
+        }
+
+        // A new socket that replaced the old one (Speed mode): packets from the exit count at once.
+        let mut checker = LivenessChecker::new(SMALL, None, CLIENT_IP, GATEWAY_IP);
+        let _ = checker.rebind(false);
+        for _ in 0..5 {
+            now = now + Duration::from_millis(1001);
+            assert!(checker.sent_traffic_at(now).is_some());
+            checker.received_traffic();
+            assert!(matches!(checker.poll_at(now), LivenessCheckerPoll::AliveUntil(_)));
+        }
+    }
+
+    #[test]
+    fn after_a_rebind_with_the_floor_full_size_losses_end_the_tunnel_in_about_6_s() {
+        let mut checker = LivenessChecker::new(SMALL, Some(LARGE), CLIENT_IP, GATEWAY_IP);
+        let probe = checker.rebind(true);
+        assert!(!is_large(&probe));
+        let start = WakeInstant::now();
+        assert!(checker.process_potential_probe_response_at(&pong(&probe), start).is_some());
+        let (sizes, now) = busy_tunnel(&mut checker, start, 6, |probe| !is_large(probe));
+        let large: Vec<usize> = sizes
+            .iter()
+            .enumerate()
+            .filter(|(_, size)| **size == usize::from(LARGE))
+            .map(|(i, _)| i)
+            .collect();
+        assert_eq!(large, [1, 3, 5]);
+        // The third large probe counts as lost when the small one after it returns.
+        assert!(matches!(checker.poll_at(now), LivenessCheckerPoll::AliveUntil(_)));
+        let (_, now) = busy_tunnel(&mut checker, now, 1, |probe| !is_large(probe));
+        assert!(matches!(checker.poll_at(now), LivenessCheckerPoll::LargeProbesLost));
+
+        // Then every tenth busy probe is large again.
+        let mut checker = LivenessChecker::new(SMALL, Some(LARGE), CLIENT_IP, GATEWAY_IP);
+        let _ = checker.rebind(true);
+        let (sizes, _) = busy_tunnel(&mut checker, start, 26, |_| true);
+        let large: Vec<usize> = sizes
+            .iter()
+            .enumerate()
+            .filter(|(_, size)| **size == usize::from(LARGE))
+            .map(|(i, _)| i)
+            .collect();
+        assert_eq!(large, [1, 3, 5, 15, 25]);
     }
 
     #[test]

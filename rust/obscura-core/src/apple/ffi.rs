@@ -81,7 +81,7 @@ pub unsafe extern "C" fn initialize(
         let config_dir = config_dir.to_string().into();
         let user_agent = user_agent.to_string();
         let wg_key_store = WgKeyStore::Keychain {
-            secret_key: Some(keychain_wg_secret_key.to_vec()).filter(|v| !v.is_empty()),
+            secret_key: Some(zeroize::Zeroizing::new(keychain_wg_secret_key.to_vec())).filter(|v| !v.is_empty()),
             set_secret_key: Box::new(move |sk: &[u8; 32]| keychain_set_wg_secret_key(sk.ffi())),
         };
         let log_persistence = std::ptr::NonNull::new(log_persistence).map(|log_persistence|

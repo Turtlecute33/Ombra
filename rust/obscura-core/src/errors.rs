@@ -138,9 +138,23 @@ pub enum TunnelConnectError {
 #[derive(Debug, Error)]
 pub enum ApiError {
     #[error(transparent)]
-    ApiClient(#[from] ClientError),
+    ApiClient(ClientError),
     #[error("not logged in")]
     NotLoggedIn,
+}
+
+/// Drops the response body of a `ProtocolError` and the values in its JSON error (Ombra patch P3). An answer that does
+/// not decode can hold the account number, a token or tunnel addresses, and these errors go into logs.
+impl From<ClientError> for ApiError {
+    fn from(mut error: ClientError) -> Self {
+        if let ClientError::ProtocolError(protocol_error) = &mut error {
+            protocol_error.raw.clear();
+            if let Some(json_error) = protocol_error.source.downcast_ref::<serde_json::Error>() {
+                protocol_error.source = anyhow::anyhow!(crate::manager_cmd::redacted_json_error(json_error));
+            }
+        }
+        Self::ApiClient(error)
+    }
 }
 
 #[derive(Debug, Error)]

@@ -38,6 +38,10 @@ impl ConfigHandle {
         ret
     }
 
+    pub fn delete_backups(&self) {
+        persistence::delete_backups(&self.config_dir)
+    }
+
     pub fn check_persisted(&self) -> Result<(), ConfigDirty> {
         (!self.dirty).then_some(()).ok_or(ConfigDirty)
     }

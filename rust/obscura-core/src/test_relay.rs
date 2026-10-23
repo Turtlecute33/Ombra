@@ -415,6 +415,7 @@ struct TestApiState {
     on_request: Box<dyn Fn(&ApiRequest) + Send + Sync>,
     requests: Mutex<Vec<ApiRequest>>,
     create_delay: Mutex<Duration>,
+    failing_deletes: Mutex<usize>,
 }
 
 #[derive(Clone, Debug)]
@@ -435,6 +436,7 @@ impl TestApi {
             on_request: Box::new(on_request),
             requests: Default::default(),
             create_delay: Default::default(),
+            failing_deletes: Default::default(),
         });
         let server_state = state.clone();
         let server = AbortOnDrop::spawn(async move {
@@ -451,6 +453,11 @@ impl TestApi {
     /// Answers each later `POST tunnel` only after `delay`.
     pub fn delay_creates(&self, delay: Duration) {
         *self.state.create_delay.lock().unwrap() = delay;
+    }
+
+    /// Answers the next `count` `DELETE tunnel` with an internal error.
+    pub fn fail_deletes(&self, count: usize) {
+        *self.state.failing_deletes.lock().unwrap() = count;
     }
 
     pub fn requests(&self) -> Vec<ApiRequest> {
@@ -504,7 +511,18 @@ async fn serve_api_request(stream: TcpStream, state: &TestApiState) -> io::Resul
             tunnel.id = request.body["id"].as_str().unwrap_or_default().to_owned();
             ("200 OK", serde_json::to_string(&tunnel).unwrap())
         }
-        ("DELETE", "/api/tunnel", _) => ("200 OK", String::new()),
+        ("DELETE", "/api/tunnel", _) => {
+            let mut failing = state.failing_deletes.lock().unwrap();
+            if *failing > 0 {
+                *failing -= 1;
+                (
+                    "500 Internal Server Error",
+                    r#"{"error":{"InternalError":{}},"msg":"internal error"}"#.to_owned(),
+                )
+            } else {
+                ("200 OK", String::new())
+            }
+        }
         _ => ("404 Not Found", r#"{"error":{"NoApiRoute":{}},"msg":"no route"}"#.to_owned()),
     };
     let response = format!(

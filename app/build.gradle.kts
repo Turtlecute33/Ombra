@@ -7,8 +7,13 @@ plugins {
 }
 
 // Release signing: keystore.properties (not in git) names the keystore and the Keychain items
-// that hold its passwords. See scripts/make-release-key.sh.
-val signingProps = rootProject.file("keystore.properties").takeIf { it.exists() }?.let { f ->
+// that hold its passwords. See scripts/make-release-key.sh. Only a build that can make a release
+// reads them, so debug builds, tests and lint never hold them.
+val buildsRelease = gradle.startParameter.taskNames.any { name ->
+    val task = name.substringAfterLast(':').lowercase()
+    "release" in task || task in setOf("assemble", "build", "bundle")
+}
+val signingProps = rootProject.file("keystore.properties").takeIf { buildsRelease && it.exists() }?.let { f ->
     Properties().apply { f.inputStream().use { load(it) } }
 }
 
@@ -26,8 +31,8 @@ android {
         applicationId = "app.ombra"
         minSdk = 36
         targetSdk = 37
-        versionCode = 3
-        versionName = "0.2.1"
+        versionCode = 4
+        versionName = "0.2.2"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk {
             abiFilters += "arm64-v8a"
@@ -130,6 +135,13 @@ val buildRustCore = tasks.register<Exec>("buildRustCore") {
 }
 
 tasks.named("preBuild") { dependsOn(buildRustCore) }
+
+// The signing config holds the passwords, so a build that signs stores no configuration cache entry.
+if (signingProps != null) {
+    tasks.matching { it.name in setOf("validateSigningRelease", "packageRelease", "signReleaseBundle") }.configureEach {
+        notCompatibleWithConfigurationCache("the release signing config holds the Keychain passwords")
+    }
+}
 
 dependencies {
     implementation(libs.kotlinx.coroutines.android)

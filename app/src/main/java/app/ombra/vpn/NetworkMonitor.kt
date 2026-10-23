@@ -72,6 +72,26 @@ class NetworkMonitor(private val service: VpnService) {
             .build()
         connectivity.registerBestMatchingNetworkCallback(request, callback, handler)
         registered = true
+        reportDefaultNetwork()
+    }
+
+    /**
+     * The callback reports the network only after the connect that came with this start reached
+     * Rust, and Rust then waits 1 s before it tries again. So report the default network at once;
+     * the callback confirms it a moment later, or reports the better one.
+     */
+    private fun reportDefaultNetwork() {
+        val network = connectivity.activeNetwork ?: return
+        val capabilities = connectivity.getNetworkCapabilities(network) ?: return
+        val linkProperties = connectivity.getLinkProperties(network) ?: return
+        val usable = capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+            capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
+        if (!usable) return
+        current = network
+        cellular = capabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)
+        link = readLink(linkProperties)
+        service.setUnderlyingNetworks(arrayOf(network))
+        publish()
     }
 
     /**

@@ -242,7 +242,7 @@ fn keychain_key_store_keeps_secret_out_of_config() {
     let key_store = |secret_key: Option<Vec<u8>>| {
         let stored = stored.clone();
         WgKeyStore::Keychain {
-            secret_key,
+            secret_key: secret_key.map(zeroize::Zeroizing::new),
             set_secret_key: Box::new(move |secret_key: &[u8; 32]| {
                 stored.lock().unwrap().push(*secret_key);
                 true

@@ -92,11 +92,15 @@ impl ClientState {
     #[allow(clippy::new_ret_no_self)]
     pub fn new(
         config_dir: PathBuf,
-        wg_key_store: WgKeyStore,
+        mut wg_key_store: WgKeyStore,
         user_agent: String,
         force_init_inactive: bool,
     ) -> Result<ClientStateHandle, ConfigLoadError> {
         let mut config = ConfigHandle::new(config_dir, &wg_key_store)?;
+        // The config holds the stored key now; the copy from the OS side is wiped (Ombra).
+        if let WgKeyStore::Keychain { secret_key, .. } = &mut wg_key_store {
+            *secret_key = None;
+        }
         if force_init_inactive {
             config.change(|config| config.tunnel_active = false)
         }
@@ -219,7 +223,8 @@ impl ClientStateHandle {
             Some((account_id, auth_token)) => (Some(account_id), auth_token),
             None => (None, None),
         };
-        if account_id != self.borrow().config.account_id {
+        let account_changed = account_id != self.borrow().config.account_id;
+        if account_changed {
             // The config of the next account forgets the Speed mode tunnels of this one, so delete them now with this
             // account's client (Ombra patch P5). A live tunnel deletes itself after its data path stopped.
             let owned = self.borrow().config.owned_udp_tunnel_ids.clone();
@@ -229,18 +234,35 @@ impl ClientStateHandle {
                 self.delete_unclaimed_udp_tunnels(api_client, &owned);
             }
         }
+        let mut kept_tunnel = false;
         self.change(|inner| {
             inner.config.change(|config| {
                 if account_id != config.account_id {
                     // Log-out / Change User. Ombra (patch P3) keeps no list of earlier account ids, so the default
                     // empty `old_account_ids` also clears the ids that an older version stored.
-                    *config = Config {
+                    let mut next = Config {
                         api_url: config.api_url.take(),
                         account_id,
                         cached_auth_token: auth_token.map(Into::into),
                         in_new_account_flow: config.in_new_account_flow,
                         ..Default::default()
+                    };
+                    if config.account_id.is_none() && config.tunnel_active {
+                        // A login while a tunnel waits for it (always-on starts before the login): keep the tunnel
+                        // and every setting of its target state (Ombra). Without this the TUN that blocks traffic
+                        // closes for about 1 s, until Kotlin connects again.
+                        kept_tunnel = true;
+                        next.tunnel_active = true;
+                        next.tunnel_args = std::mem::take(&mut config.tunnel_args);
+                        next.dns_content_block = std::mem::take(&mut config.dns_content_block);
+                        next.dns = std::mem::take(&mut config.dns);
+                        next.local_network_access = std::mem::take(&mut config.local_network_access);
+                        next.tailscale_bypass = std::mem::take(&mut config.tailscale_bypass);
+                        next.wireguard_bypass = std::mem::take(&mut config.wireguard_bypass);
+                        next.feature_flags = std::mem::take(&mut config.feature_flags);
+                        next.sni_relay = config.sni_relay.take();
                     }
+                    *config = next;
                 } else {
                     tracing::warn!(message_id = "shia4Eph", "Setting auth token for logged in account. This isn't expected.");
                     config.cached_auth_token = auth_token.map(Into::into);
@@ -249,6 +271,13 @@ impl ClientStateHandle {
             tracing::info!(message_id = "Aish2eph", "Clearing cached API client: account ID or auth token changed.");
             inner.cached_api_client = None;
         });
+        if account_changed {
+            self.borrow().config.delete_backups();
+        }
+        if kept_tunnel {
+            // The target state is the same, so only this ends the wait after the connects that failed without a login.
+            crate::tunnel_state::retry_connect_now();
+        }
         self.borrow().config.check_persisted()
     }
 
@@ -377,6 +406,8 @@ impl ClientStateHandle {
                     inner.mtu_floor_failed = false;
                     tracing::info!(message_id = "iew0Ahk9", "Clearing cached API client: network interface changed.");
                     inner.cached_api_client = None;
+                    // The API addresses of one network's resolver are not fresh on the next (Ombra patch P3).
+                    inner.config.change(|config| config.dns_cache.expire_all());
                 }
             }
         })
@@ -473,7 +504,9 @@ impl ClientStateHandle {
         tokio::spawn(handshaking.abandon());
         self.wait_for_udp_tunnel_deletes().await;
 
-        let lease = self.lease_udp_tunnel()?;
+        // The create call and the delete of the lease use the same client, also when the account changes meanwhile.
+        let (account_id, api_client) = self.account_api_client()?;
+        let lease = self.lease_udp_tunnel(api_client.clone());
         let tunnel_id = lease.id();
         let (wg_private_key, wg_public_key) = self.use_wg_key_pair();
         tracing::info!(
@@ -494,7 +527,9 @@ impl ClientStateHandle {
         // The create call runs to its end in its own task, also when this connect is cancelled. The lease drops only
         // after it, so the delete never overtakes the create.
         let this = self.clone();
-        let (created, lease) = tokio::spawn(async move { (this.api_request(cmd).await, lease) }).await.unwrap();
+        let (created, lease) = tokio::spawn(async move { (this.api_request_with(&account_id, &api_client, cmd).await, lease) })
+            .await
+            .unwrap();
         let tunnel = match created {
             Ok(tunnel) => tunnel,
             Err(error) => {
@@ -744,36 +779,51 @@ impl ClientStateHandle {
     }
 
     pub(crate) fn api_client(&self) -> Result<Arc<Client>, ApiError> {
-        let Some(account_id) = self.borrow().config.account_id.clone() else {
+        self.account_api_client().map(|(_, api_client)| api_client)
+    }
+
+    /// The API client with the account that it belongs to (Ombra): both come from the same state.
+    pub(crate) fn account_api_client(&self) -> Result<(AccountId, Arc<Client>), ApiError> {
+        if self.borrow().config.account_id.is_none() {
             return Err(ApiError::NotLoggedIn);
-        };
+        }
 
         self.change(|inner| {
+            let account_id = inner.config.account_id.clone().ok_or(ApiError::NotLoggedIn)?;
             if let Some(api_client) = inner.cached_api_client.clone() {
-                Ok(api_client)
+                Ok((account_id, api_client))
             } else {
-                let api_client = Arc::new(inner.make_api_client(account_id)?);
+                let api_client = Arc::new(inner.make_api_client(account_id.clone())?);
                 if let Some(auth_token) = inner.config.cached_auth_token.clone() {
                     api_client.set_auth_token(Some(auth_token.into()));
                 }
-                Ok(inner.cached_api_client.insert(api_client).clone())
+                Ok((account_id, inner.cached_api_client.insert(api_client).clone()))
             }
         })
     }
 
-    fn cache_auth_token(&self, api_client: &Client) {
+    /// Only into the config of `account_id` (Ombra): a request that was in flight during a logout or an account change
+    /// must not give the old account's token to the next config.
+    fn cache_auth_token(&self, account_id: &AccountId, api_client: &Client) {
         let auth_token = api_client.get_auth_token();
         self.change(|inner| {
             inner.config.change(|config| {
-                config.cached_auth_token = auth_token.map(Into::into);
+                if config.account_id.as_ref() == Some(account_id) {
+                    config.cached_auth_token = auth_token.map(Into::into);
+                }
             });
         })
     }
 
     pub async fn api_request<C: Cmd>(&self, cmd: C) -> Result<C::Output, ApiError> {
-        let api_client = self.api_client()?;
+        let (account_id, api_client) = self.account_api_client()?;
+        self.api_request_with(&account_id, &api_client, cmd).await
+    }
+
+    /// [`Self::api_request`] with a client that the caller got earlier from [`Self::account_api_client`].
+    pub(crate) async fn api_request_with<C: Cmd>(&self, account_id: &AccountId, api_client: &Client, cmd: C) -> Result<C::Output, ApiError> {
         let result = api_client.run(cmd).await;
-        self.cache_auth_token(&api_client);
+        self.cache_auth_token(account_id, api_client);
         self.expire_dns_cache_if_unreachable(&result);
         Ok(result?)
     }
@@ -786,9 +836,9 @@ impl ClientStateHandle {
     }
 
     pub async fn cached_api_request<C: ETagCmd>(&self, cmd: C, etag: Option<&[u8]>) -> Result<obscuravpn_api::Response<C::Output>, ApiError> {
-        let api_client = self.api_client()?;
+        let (account_id, api_client) = self.account_api_client()?;
         let result = api_client.run_with_etag(cmd, etag).await;
-        self.cache_auth_token(&api_client);
+        self.cache_auth_token(&account_id, &api_client);
         self.expire_dns_cache_if_unreachable(&result);
         Ok(result?)
     }
@@ -1094,7 +1144,7 @@ mod tests {
     use crate::test_relay::{ApiRequest, SpeedSetup, echo_reply, echo_request, wait_until};
     use obscuravpn_api::types::CountryCode;
     use tempfile::tempdir;
-    use tokio::time::timeout;
+    use tokio::time::{sleep, timeout};
 
     fn client_state(config_dir: &std::path::Path) -> ClientStateHandle {
         ClientState::new(config_dir.into(), WgKeyStore::None, "test".into(), false).unwrap()
@@ -1201,6 +1251,90 @@ mod tests {
         assert!(!config_json().contains(&current) && config_json().contains(&next));
     }
 
+    /// A login while a tunnel waits for it keeps the tunnel and its settings, so its TUN stays. A change of account
+    /// and a logout still stop the tunnel.
+    #[test]
+    fn a_login_keeps_a_tunnel_that_waits_for_it() {
+        let dir = tempdir().unwrap();
+        let client_state = client_state(dir.path());
+        let account = |id: &str| Some((AccountId::from_string_unchecked(id.into()), None));
+        let relay = RelaySelector::Country { country_code: CountryCode("DE".into()) };
+        client_state.set_tunnel_target_state(
+            Some(TunnelArgs { relay, mode: TunnelMode::WireguardUdp, ..Default::default() }),
+            Some(true),
+        );
+        client_state.set_feature_flag("quicFramePadding", true);
+        client_state.set_sni_relay(Some("sni.example".into()));
+        let waiting = client_state.borrow().target_state();
+
+        client_state.set_account_id(account("test-account-a")).unwrap();
+        assert_eq!(client_state.borrow().target_state(), waiting);
+        assert_eq!(client_state.borrow().config().feature_flags.quic_frame_padding, Some(true));
+
+        client_state.set_account_id(account("test-account-b")).unwrap();
+        assert_eq!(
+            client_state.borrow().target_state().tunnel_args,
+            None,
+            "an account change stops the tunnel"
+        );
+
+        client_state.set_tunnel_target_state(None, Some(true));
+        client_state.set_account_id(None).unwrap();
+        assert_eq!(client_state.borrow().target_state().tunnel_args, None, "a logout stops the tunnel");
+    }
+
+    /// The copy of a config file that did not parse can hold the account number and a token: an account change
+    /// deletes it. The secret key from the OS side is wiped once the config is loaded.
+    #[test]
+    fn an_account_change_deletes_config_backups_and_the_key_from_the_os_is_wiped() {
+        let dir = tempdir().unwrap();
+        std::fs::write(dir.path().join("config.json"), "not json").unwrap();
+        let key_store = WgKeyStore::Keychain {
+            secret_key: Some(zeroize::Zeroizing::new(vec![7; 32])),
+            set_secret_key: Box::new(|_: &[u8; 32]| true),
+        };
+        let client_state = ClientState::new(dir.path().into(), key_store, "test".into(), false).unwrap();
+        assert!(matches!(
+            &client_state.borrow().wg_key_store,
+            WgKeyStore::Keychain { secret_key: None, .. }
+        ));
+        let backups = || {
+            let names = std::fs::read_dir(dir.path())
+                .unwrap()
+                .map(|entry| entry.unwrap().file_name().into_string().unwrap());
+            names.filter(|name| name.starts_with("config-backup-")).count()
+        };
+        assert_eq!(backups(), 1);
+
+        client_state
+            .set_account_id(Some((AccountId::from_string_unchecked("test-account-a".into()), None)))
+            .unwrap();
+        assert_eq!(backups(), 0);
+    }
+
+    /// The token of a request that was in flight during an account change stays out of the next account's config.
+    #[test]
+    fn a_token_goes_only_into_the_config_of_its_account() {
+        let dir = tempdir().unwrap();
+        let client_state = client_state(dir.path());
+        let [a, b] = ["test-account-a", "test-account-b"].map(|id| AccountId::from_string_unchecked(id.into()));
+        client_state.set_account_id(Some((a.clone(), None))).unwrap();
+        let (account_id, api_client) = client_state.account_api_client().unwrap();
+        assert_eq!(account_id, a);
+        api_client.set_auth_token(Some(AuthToken::from("test-token-a".to_string())));
+
+        client_state.set_account_id(Some((b, None))).unwrap();
+        client_state.cache_auth_token(&account_id, &api_client);
+        assert_eq!(client_state.borrow().config().cached_auth_token, None);
+        client_state.set_account_id(None).unwrap();
+        client_state.cache_auth_token(&account_id, &api_client);
+        assert_eq!(client_state.borrow().config().cached_auth_token, None, "also not after a logout");
+
+        client_state.set_account_id(Some((a, None))).unwrap();
+        client_state.cache_auth_token(&account_id, &api_client);
+        assert_eq!(client_state.borrow().config().cached_auth_token.as_deref(), Some("test-token-a"));
+    }
+
     /// Ombra patch P5 on the loopback interface, with stand-ins for the API and the relay: the race over QUIC, the
     /// `UdpPort` create call with the tunnel id already in config.json, pings in the tunnel, and the delete after the
     /// connection is dropped.
@@ -1301,5 +1435,29 @@ mod tests {
         assert!(client_state.borrow().config().owned_udp_tunnel_ids.is_empty());
         wait_until("the logout deletes the leftover", || api.deleted_tunnel_ids().len() == 2).await;
         assert_eq!(api.deleted_tunnel_ids(), [leftover.to_string(), at_logout.to_string()]);
+    }
+
+    /// The config of the next account does not have the old account's tunnel ids, so a failed delete at logout is
+    /// tried again by the delete task, with the old account's client.
+    #[tokio::test]
+    async fn a_delete_that_fails_at_logout_is_tried_again() {
+        let setup = SpeedSetup::new(|relay| relay.udp_addr);
+        let SpeedSetup { client_state, api, .. } = &setup;
+        let at_logout = Uuid::new_v4();
+        client_state.change_config(|config| config.owned_udp_tunnel_ids = vec![at_logout]);
+        api.fail_deletes(2);
+
+        client_state.set_account_id(None).unwrap();
+        wait_until("the first delete", || api.deleted_tunnel_ids().len() == 1).await;
+        let start = std::time::Instant::now();
+        client_state.wait_for_udp_tunnel_deletes().await;
+        assert!(
+            start.elapsed() < Duration::from_secs(1),
+            "a connect waits for the deletes that are tried again"
+        );
+        wait_until("the delete is tried again until it works", || api.deleted_tunnel_ids().len() == 3).await;
+        assert_eq!(api.deleted_tunnel_ids(), vec![at_logout.to_string(); 3]);
+        sleep(Duration::from_millis(500)).await;
+        assert_eq!(api.deleted_tunnel_ids().len(), 3, "no delete after it worked");
     }
 }

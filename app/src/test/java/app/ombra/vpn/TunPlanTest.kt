@@ -7,6 +7,7 @@ import app.ombra.ipc.Settings
 import app.ombra.ipc.SplitMode
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 
 class TunPlanTest {
     private val own = "app.ombra"
@@ -90,6 +91,20 @@ class TunPlanTest {
     fun systemDnsNeedsRustAndTheSettingsToAgree() {
         assertEquals(listOf("10.64.0.99"), plan(dummy.copy(useSystemDns = true), Settings()).dnsServers)
         assertEquals(listOf("10.64.0.99"), plan(dummy, Settings(useSystemDns = true)).dnsServers)
+    }
+
+    @Test
+    fun aConfigWithoutRoutesIsRefused() {
+        assertFailsWith<IllegalArgumentException> { plan(dummy.copy(routes = emptyList())) }
+    }
+
+    @Test
+    fun aConfigWithoutUsableDnsIsRefusedUnlessSystemDnsIsChosen() {
+        // Android would use the resolvers of the physical network.
+        val noDns = dummy.copy(dns = listOf("127.0.0.1", "0.0.0.0"))
+        assertFailsWith<IllegalArgumentException> { plan(noDns) }
+        assertFailsWith<IllegalArgumentException> { plan(noDns.copy(useSystemDns = true)) }
+        assertEquals(emptyList(), plan(noDns.copy(useSystemDns = true), Settings(useSystemDns = true)).dnsServers)
     }
 
     @Test

@@ -565,16 +565,22 @@ impl QuicWgConn {
     }
 
     /// Sends a liveness probe at once. Until a probe is answered, the tunnel counts as dead after 2 lost probes, as after
-    /// a sleep. With `keepalive`, a WireGuard keepalive goes first.
-    fn send_wake_probe(&self, keepalive: bool) {
+    /// a sleep. With `rebind` the liveness check also follows the new socket; in Speed mode a WireGuard keepalive goes
+    /// first.
+    fn send_wake_probe(&self, rebind: bool) {
         let max_wg_message_size = self.wg_sender.max_wg_message_size();
+        let speed_mode = self.transport() == TransportKind::WireguardUdp;
         let mut wg_messages = WgMessages::new();
         {
             let mut wg_state = self.wg_state.lock().unwrap();
-            if keepalive {
+            if rebind && speed_mode {
                 wg_state.encapsulate(&[], max_wg_message_size, &mut wg_messages);
             }
-            let probe = wg_state.liveness_checker.wake();
+            // quinn reads the old socket until a packet comes on the new one; Speed mode closes it.
+            let probe = match rebind {
+                true => wg_state.liveness_checker.rebind(!speed_mode),
+                false => wg_state.liveness_checker.wake(),
+            };
             wg_state.encapsulate(&probe, max_wg_message_size, &mut wg_messages);
         }
         self.wg_sender.send_wg_messages(wg_messages);
@@ -597,7 +603,7 @@ impl QuicWgConn {
             }
         }
         // In Speed mode a WireGuard keepalive tells the relay the new address at once (D2).
-        self.send_wake_probe(self.transport() == TransportKind::WireguardUdp);
+        self.send_wake_probe(true);
         Ok(())
     }
 
@@ -835,12 +841,26 @@ async fn connected_udp_socket(endpoint: SocketAddrV4, network_interface: Option<
 
 /// An ICMP error that the kernel reported for an earlier datagram of a connected UDP socket, such as port unreachable
 /// while the relay is not ready for a new tunnel yet. WireGuard ignores these: only the liveness check ends a tunnel.
+/// The errnos are the other ICMP errors that Linux reports on a connected UDP socket (`icmp_err_convert`), such as
+/// EMSGSIZE for "fragmentation needed"; std has no `ErrorKind` for them.
 fn is_udp_path_error(error: &io::Error) -> bool {
     matches!(
         error.kind(),
         io::ErrorKind::ConnectionRefused | io::ErrorKind::ConnectionReset | io::ErrorKind::HostUnreachable | io::ErrorKind::NetworkUnreachable
-    )
+    ) || error.raw_os_error().is_some_and(|errno| ICMP_ERRNOS.contains(&errno))
 }
+
+#[cfg(any(target_os = "android", target_os = "linux"))]
+const ICMP_ERRNOS: &[i32] = &[
+    libc::EMSGSIZE,
+    libc::EHOSTDOWN,
+    libc::ENONET,
+    libc::ENOPROTOOPT,
+    libc::EOPNOTSUPP,
+    libc::EPROTO,
+];
+#[cfg(not(any(target_os = "android", target_os = "linux")))]
+const ICMP_ERRNOS: &[i32] = &[];
 
 /// The first WireGuard handshake: `sends` initiations, 100 ms apart. A new initiation replaces the old one after each
 /// `sends_per_initiation` sends; the sends in between are copies.

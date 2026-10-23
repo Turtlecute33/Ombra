@@ -12,6 +12,7 @@ import app.ombra.core.model.CoreCommands
 import app.ombra.core.model.TunnelArgs
 import app.ombra.core.model.VpnStatus
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
@@ -30,6 +31,7 @@ class OmbraVpnService : VpnService(), Callbacks.NetworkConfigHandler {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private lateinit var networkMonitor: NetworkMonitor
     private lateinit var wakeMonitor: WakeMonitor
+    private lateinit var packageMonitor: PackageMonitor
     private lateinit var tun: TunConfigurator
     private var inForeground = false
     private var observing = false
@@ -44,6 +46,9 @@ class OmbraVpnService : VpnService(), Callbacks.NetworkConfigHandler {
             RustFfi.wake()
             // Always-on can change in Settings without a start of this service.
             CoreHost.refreshSystemState()
+        }
+        packageMonitor = PackageMonitor(this, { CoreHost.settingsStore.current }) {
+            CoreHost.scope.launch { CoreHost.controller.refreshTun() }
         }
         tun = TunConfigurator(this, { CoreHost.settingsStore.current }, { networkMonitor.current })
         Callbacks.setNetworkConfigHandler(this)
@@ -95,6 +100,7 @@ class OmbraVpnService : VpnService(), Callbacks.NetworkConfigHandler {
         CoreHost.detachVpnService(this)
         networkMonitor.stop()
         wakeMonitor.setEnabled(false)
+        packageMonitor.setEnabled(false)
         scope.cancel()
         if (CoreHost.isReady) {
             CoreHost.vpnWanted = false
@@ -136,7 +142,12 @@ class OmbraVpnService : VpnService(), Callbacks.NetworkConfigHandler {
         observing = true
         scope.launch { merge(CoreHost.status, CoreHost.vpnWantedFlow).collect { stopIfIdle() } }
         scope.launch { CoreHost.statusView.collect(::showStatus) }
-        scope.launch { CoreHost.vpnWantedFlow.collect(wakeMonitor::setEnabled) }
+        scope.launch {
+            CoreHost.vpnWantedFlow.collect {
+                wakeMonitor.setEnabled(it)
+                packageMonitor.setEnabled(it)
+            }
+        }
     }
 
     /** Reads the current values, not the ones that triggered it: a connect sets "wanted" first. */
@@ -175,9 +186,13 @@ class OmbraVpnService : VpnService(), Callbacks.NetworkConfigHandler {
         stopSelf(startId)
     }
 
-    /** Core commands must finish even if the service goes away meanwhile. */
+    /**
+     * Core commands must finish even if the service goes away meanwhile. Undispatched, so each
+     * command reaches Rust on this thread in start order (a quick disconnect and connect must not
+     * swap); the wait for its result then moves off this thread.
+     */
     private fun launchCore(block: suspend () -> Unit) {
-        CoreHost.scope.launch {
+        CoreHost.scope.launch(start = CoroutineStart.UNDISPATCHED) {
             try {
                 withContext(NonCancellable) { block() }
             } catch (e: ErrorCodeException) {

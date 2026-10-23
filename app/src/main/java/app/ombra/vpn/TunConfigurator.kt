@@ -4,7 +4,6 @@ import android.content.pm.PackageManager
 import android.net.InetAddresses
 import android.net.Network
 import android.net.VpnService
-import android.system.OsConstants
 import android.util.Log
 import app.ombra.core.model.CoreJson
 import app.ombra.core.model.OsNetworkConfig
@@ -51,8 +50,7 @@ class TunConfigurator(
         plan.addresses.forEach { builder.addAddress(it.address, it.prefix) }
         plan.routes.forEach { builder.addRoute(it.address, it.prefix) }
         plan.dnsServers.forEach { builder.addDnsServer(it) }
-        builder.allowFamily(OsConstants.AF_INET)
-        builder.allowFamily(OsConstants.AF_INET6)
+        // No allowFamily(): Android then blocks a family that has no address or route in the TUN.
         // Without a network the system default applies, which is right while it is unknown.
         underlyingNetwork()?.let { builder.setUnderlyingNetworks(arrayOf(it)) }
         when (val apps = plan.apps) {

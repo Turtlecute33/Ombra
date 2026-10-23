@@ -85,7 +85,8 @@ pub type KeychainSetSecretKeyFn = Box<dyn (Fn(&[u8; 32]) -> bool) + Sync + Send>
 pub enum WgKeyStore {
     Plaintext,
     Keychain {
-        secret_key: Option<Vec<u8>>,
+        /// The stored key that the OS side gave at start. Wiped once the config is loaded (Ombra).
+        secret_key: Option<zeroize::Zeroizing<Vec<u8>>>,
         set_secret_key: KeychainSetSecretKeyFn,
     },
     Sealed(SealingKey),

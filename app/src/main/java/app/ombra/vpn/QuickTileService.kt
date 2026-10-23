@@ -87,7 +87,8 @@ class QuickTileService : TileService() {
             else -> Tile.STATE_INACTIVE
         }
         tile.label = getString(view.titleRes)
-        tile.subtitle = view.exitCity ?: getString(R.string.app_name)
+        // Quick Settings on the lock screen shows the tile too; the notification hides the city there.
+        tile.subtitle = view.exitCity.takeUnless { isLocked } ?: getString(R.string.app_name)
         tile.updateTile()
     }
 

@@ -85,10 +85,13 @@ class CoreController(
         val before = settingsStore.current
         val after = settingsStore.update(patch)
         send(SettingsSync.changes(before, after))
-        if (SettingsSync.tunChanged(before, after) && tunnelInUse()) {
-            quietly("TUN refresh") { core.call(CoreCommands.refreshOsNetworkConfig()) }
-        }
+        if (SettingsSync.tunChanged(before, after)) refreshTun()
         after
+    }
+
+    /** Builds the TUN again for OS-side facts that Rust does not see, such as split tunnelling and custom DNS. */
+    suspend fun refreshTun() {
+        if (tunnelInUse()) quietly("TUN refresh") { core.call(CoreCommands.refreshOsNetworkConfig()) }
     }
 
     /** Checks [accountNumber] locally (length and Verhoeff) first, so a typo costs no network call. */
@@ -150,8 +153,9 @@ class CoreController(
     suspend fun accountNumber(): String? = (statusState.value ?: core.call(CoreCommands.getStatus(null))).accountId
 
     private suspend fun signIn(number: String) {
-        // Rust stops the tunnel when the account changes. A tunnel that is wanted and in use (for
-        // example always-on that waits for a login) is started again after the login.
+        // Rust stops the tunnel when the account changes, except a tunnel that waits for a login from
+        // the logged-out state (for example always-on): Rust keeps that one and its TUN. A tunnel that
+        // is wanted and in use is started again after the login.
         val reconnect = vpnWanted.value && tunnelInUse()
         if (!reconnect && statusState.value?.accountId != number) vpnWanted.value = false
         try {

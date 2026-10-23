@@ -40,13 +40,20 @@ data class TunPlan(
             ownPackage: String,
             isUsableDns: (String) -> Boolean,
             isInstalled: (String) -> Boolean,
-        ): TunPlan = TunPlan(
-            mtu = config.mtu,
-            addresses = listOf(cidr(config.ipv4, IPV4_HOST_PREFIX), cidr(config.ipv6, IPV6_HOST_PREFIX)),
-            routes = config.routes.map { Cidr(it.address, it.prefix) },
-            dnsServers = dnsServers(config, settings, isUsableDns),
-            apps = appScope(settings, ownPackage, isInstalled),
-        )
+        ): TunPlan {
+            val plan = TunPlan(
+                mtu = config.mtu,
+                addresses = listOf(cidr(config.ipv4, IPV4_HOST_PREFIX), cidr(config.ipv6, IPV6_HOST_PREFIX)),
+                routes = config.routes.map { Cidr(it.address, it.prefix) },
+                dnsServers = dnsServers(config, settings, isUsableDns),
+                apps = appScope(settings, ownPackage, isInstalled),
+            )
+            // Fail closed: a TUN without routes captures nothing, and one without DNS servers sends
+            // queries to the resolvers of the physical network. Rust then keeps the TUN it has.
+            require(plan.routes.isNotEmpty()) { "no routes" }
+            require(plan.dnsServers.isNotEmpty() || usesSystemDns(config, settings)) { "no usable DNS server" }
+            return plan
+        }
 
         /**
          * System DNS only when Rust and the settings both ask for it, so a stale value on one side
@@ -54,9 +61,11 @@ data class TunPlan(
          * resolvers of the physical network, so unusable custom entries fall back to the tunnel DNS.
          */
         fun dnsServers(config: OsNetworkConfig, settings: Settings, isUsableDns: (String) -> Boolean): List<String> {
-            if (config.useSystemDns && settings.useSystemDns) return emptyList()
+            if (usesSystemDns(config, settings)) return emptyList()
             return settings.customDns.filter(isUsableDns).ifEmpty { config.dns.filter(isUsableDns) }
         }
+
+        private fun usesSystemDns(config: OsNetworkConfig, settings: Settings) = config.useSystemDns && settings.useSystemDns
 
         /**
          * Rust never calls protect(): its sockets leave the tunnel only because our own package is

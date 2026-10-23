@@ -18,7 +18,8 @@ fun copySensitive(context: Context, label: String, text: String) = SensitiveClip
 /**
  * The secret on the clipboard, if Ombra put one there. Android lets only the focused app read the
  * clipboard, so Ombra cannot see in the background whether the clip is still its own: a clear that
- * falls due then waits for [clearIfDue] when Ombra has the focus again.
+ * falls due then clears the clip anyway, also a clip that the user copied in another app within
+ * the minute. Writing to the clipboard needs no focus.
  */
 object SensitiveClip {
     private val main = Handler(Looper.getMainLooper())
@@ -39,14 +40,17 @@ object SensitiveClip {
         main.postDelayed({ clearIfDue(appContext) }, CLEAR_AFTER_MS)
     }
 
-    /** Clears the clip when its minute is over and it is still Ombra's. Call when the window gets the focus. */
+    /**
+     * Clears the clip when its minute is over and it is still Ombra's, or when Ombra cannot see
+     * whose it is. Also call when the window gets the focus.
+     */
     fun clearIfDue(context: Context) {
         val at = copiedAt ?: return
         if (SystemClock.elapsedRealtime() < dueAt) return
         val clipboard = context.clipboard()
-        // Null in the background (or when the clipboard is empty): try again at the next focus.
-        val current = clipboard.primaryClipDescription ?: return
-        if (current.timestamp == at) clipboard.clearPrimaryClip()
+        // Null in the background (or when the clipboard is empty).
+        val current = clipboard.primaryClipDescription
+        if (current == null || current.timestamp == at) clipboard.clearPrimaryClip()
         copiedAt = null
     }
 

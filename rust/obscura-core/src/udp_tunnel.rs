@@ -11,6 +11,7 @@ use crate::network_config::{NetworkConfigError, TunnelNetworkConfig};
 use crate::quicwg::{QuicWgConn, QuicWgConnectError, QuicWgWireguardHandshakeError};
 use boringtun::x25519::{PublicKey, StaticSecret};
 use obscuravpn_api::cmd::{ApiErrorKind, DeleteTunnel};
+use obscuravpn_api::reexports::reqwest::StatusCode;
 use obscuravpn_api::types::{WgClientConfig, WgServerConfig};
 use obscuravpn_api::{Client, ClientError};
 use std::collections::BTreeSet;
@@ -19,7 +20,7 @@ use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::watch;
-use tokio::time::timeout;
+use tokio::time::{sleep, timeout};
 use uuid::Uuid;
 
 /// The tunnel MTU without a `udpMtu` setting. The official WireGuard app uses it for a config without an `MTU` line.
@@ -42,6 +43,15 @@ const DELETE_WAIT: Duration = Duration::from_secs(5);
 
 /// The config keeps at most this many ids, so that a tunnel that the API never deletes cannot grow it.
 const MAX_OWNED_TUNNEL_IDS: usize = 16;
+
+/// The waits between the deletes of a tunnel that the config forgot (logout, account change): 10 s, doubling, about
+/// 40 min in all. Only this task still knows the id, and the API keeps a tunnel slot of the old account for it.
+const FORGOTTEN_RETRY_FIRST_DELAY: Duration = if cfg!(test) {
+    Duration::from_millis(100)
+} else {
+    Duration::from_secs(10)
+};
+const FORGOTTEN_RETRIES: u32 = 8;
 
 /// `udpMtu` of the tunnel arguments, clamped to 1280..=1420.
 pub fn tunnel_mtu(udp_mtu: Option<u16>) -> u16 {
@@ -194,15 +204,33 @@ struct TunnelDeleter {
 
 impl TunnelDeleter {
     /// Deletes the tunnel `id`, which the caller claimed. The id leaves the config when the tunnel is gone. Otherwise
-    /// it stays for a later delete.
+    /// it stays for a later delete. An id that the config no longer has gets its later deletes from this task.
     async fn delete(self, id: Uuid) {
+        let outcome = self.try_delete(id).await;
+        self.claims.release(id);
+        if outcome == DeleteOutcome::Retry && self.config_forgot(id) {
+            // The claim is released: a connect of the next account must not wait for this delete.
+            let mut delay = FORGOTTEN_RETRY_FIRST_DELAY;
+            for _ in 0..FORGOTTEN_RETRIES {
+                sleep(delay).await;
+                if self.client_state.upgrade().is_none() || self.try_delete(id).await == DeleteOutcome::Gone {
+                    return;
+                }
+                delay = delay.saturating_mul(2);
+            }
+            tracing::warn!(message_id = "Gx4tNb7Q", tunnel.id =% id, "stopped trying to delete the API tunnel of an earlier account");
+        }
+    }
+
+    async fn try_delete(&self, id: Uuid) -> DeleteOutcome {
         let result = self.api_client.run(DeleteTunnel { id: id.to_string() }).await;
         let client_state = self.client_state.upgrade();
         if let Some(client_state) = &client_state {
             client_state.expire_dns_cache_if_unreachable(&result);
         }
         let result = result.map_err(ApiError::from);
-        match DeleteOutcome::of(&result) {
+        let outcome = DeleteOutcome::of(&result);
+        match outcome {
             DeleteOutcome::Gone => {
                 tracing::info!(message_id = "Lw5hRz1K", tunnel.id =% id, ?result, "deleted the API tunnel");
                 if let Some(client_state) = &client_state {
@@ -213,7 +241,13 @@ impl TunnelDeleter {
                 tracing::warn!(message_id = "Fc7pXe4T", tunnel.id =% id, ?result, "failed to delete the API tunnel, trying again later");
             }
         }
-        self.claims.release(id);
+        outcome
+    }
+
+    fn config_forgot(&self, id: Uuid) -> bool {
+        self.client_state
+            .upgrade()
+            .is_some_and(|client_state| !client_state.borrow().config().owned_udp_tunnel_ids.contains(&id))
     }
 }
 
@@ -229,24 +263,26 @@ impl DeleteOutcome {
     fn of(result: &Result<(), ApiError>) -> Self {
         let Err(error) = result else { return Self::Gone };
         match error.api_error_kind() {
-            None
-            | Some(
-                ApiErrorKind::AccountExpired {}
-                | ApiErrorKind::InternalError {}
-                | ApiErrorKind::MiscUnauthorized {}
-                | ApiErrorKind::MissingOrInvalidAuthToken {}
-                | ApiErrorKind::RateLimitExceeded { .. },
-            ) => Self::Retry,
-            // An error that this client does not know, from a server failure: the delete may work later.
-            Some(ApiErrorKind::Unknown(_)) if is_server_error(error) => Self::Retry,
-            // Any other answer: the API has no tunnel with this id that this account could delete.
-            Some(_) => Self::Gone,
+            Some(ApiErrorKind::BadRequest {}) => Self::Gone,
+            // A name that this client does not know, for a request that the API refused (such as "no such tunnel"):
+            // the API has no tunnel with this id that this account could delete.
+            Some(ApiErrorKind::Unknown(_)) if is_refused_request(error) => Self::Gone,
+            // Anything else can change: no answer, a server failure, a limit, the auth, a route or client version that
+            // the API no longer takes. A forgotten id would keep its tunnel slot for ever.
+            _ => Self::Retry,
         }
     }
 }
 
-fn is_server_error(error: &ApiError) -> bool {
-    matches!(error, ApiError::ApiClient(ClientError::ApiError(error)) if error.status.is_server_error())
+/// A 4xx answer that is not about the auth or a rate limit.
+fn is_refused_request(error: &ApiError) -> bool {
+    matches!(
+        error,
+        ApiError::ApiClient(ClientError::ApiError(error))
+            if error.status.is_client_error()
+                && error.status != StatusCode::UNAUTHORIZED
+                && error.status != StatusCode::TOO_MANY_REQUESTS
+    )
 }
 
 fn spawn_in_runtime(future: impl Future<Output = ()> + Send + 'static) -> bool {
@@ -258,9 +294,9 @@ fn spawn_in_runtime(future: impl Future<Output = ()> + Send + 'static) -> bool {
 }
 
 impl ClientStateHandle {
-    /// Writes a new tunnel id to the config, before the API hears of it.
-    pub(crate) fn lease_udp_tunnel(&self) -> Result<UdpTunnelLease, ApiError> {
-        let api_client = self.api_client()?;
+    /// Writes a new tunnel id to the config, before the API hears of it. `api_client` (of the logged-in account) later
+    /// deletes the tunnel; the create call must use the same client.
+    pub(crate) fn lease_udp_tunnel(&self, api_client: Arc<Client>) -> UdpTunnelLease {
         let claims = self.udp_tunnel_claims();
         let id = Uuid::new_v4();
         claims.claim(id);
@@ -271,7 +307,7 @@ impl ClientStateHandle {
                 tracing::warn!(message_id = "Pz2kQm6B", tunnel.id =% forgotten, "too many undeleted API tunnels, forgetting the oldest");
             }
         });
-        Ok(UdpTunnelLease { id, deleter: Some(TunnelDeleter { api_client, client_state: self.downgrade(), claims }) })
+        UdpTunnelLease { id, deleter: Some(TunnelDeleter { api_client, client_state: self.downgrade(), claims }) }
     }
 
     /// Starts to delete the owned tunnels that no task works on: leftovers of an earlier run or of a delete that failed.
@@ -322,7 +358,6 @@ mod tests {
     use crate::quicwg::{QuicWgConnPacketSender, TransportKind};
     use crate::test_relay::{EXIT_TUNNEL_IP, TestRelay, echo_reply, echo_request, udp_port_config};
     use obscuravpn_api::cmd::ApiErrorBody;
-    use obscuravpn_api::reexports::reqwest::StatusCode;
     use obscuravpn_api::types::WgPubkey;
 
     #[test]
@@ -390,6 +425,9 @@ mod tests {
             DeleteOutcome::of(&api_error(StatusCode::BAD_GATEWAY, unknown("TunnelStopFailed"))),
             DeleteOutcome::Retry
         );
+        for status in [StatusCode::UNAUTHORIZED, StatusCode::TOO_MANY_REQUESTS] {
+            assert_eq!(DeleteOutcome::of(&api_error(status, unknown("NewLimit"))), DeleteOutcome::Retry);
+        }
 
         assert_eq!(DeleteOutcome::of(&Err(ApiError::NotLoggedIn)), DeleteOutcome::Retry);
         let transport_error = ApiError::ApiClient(ClientError::Other(anyhow::anyhow!("connection refused")));
@@ -399,6 +437,9 @@ mod tests {
             ApiErrorKind::RateLimitExceeded { pow_challenge: None },
             ApiErrorKind::AccountExpired {},
             ApiErrorKind::MissingOrInvalidAuthToken {},
+            // The delete route moved, or the API no longer takes this client version.
+            ApiErrorKind::NoApiRoute {},
+            ApiErrorKind::NoLongerSupported {},
         ] {
             assert_eq!(
                 DeleteOutcome::of(&api_error(StatusCode::INTERNAL_SERVER_ERROR, kind)),

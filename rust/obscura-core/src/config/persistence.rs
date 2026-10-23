@@ -111,9 +111,9 @@ pub fn load(config_dir: &Path, key_store: &WgKeyStore) -> Result<Config, ConfigL
     };
 
     // This may collide if failing in a tight loop, that is fine. Possibly even a feature.
-    let backup_path = Path::new(config_dir).join(format!("config-backup-{}.json", Utc::now().format("%Y-%m-%dT%H-%M-%S%.3f")));
+    let backup_path = Path::new(config_dir).join(format!("{BACKUP_PREFIX}{}.json", Utc::now().format("%Y-%m-%dT%H-%M-%S%.3f")));
 
-    // TODO: Do we want to try to clean up old backup configs?
+    // Ombra deletes them at an account change (`delete_backups`).
 
     match fs::rename(&path, &backup_path) {
         Ok(()) => {}
@@ -134,6 +134,24 @@ pub fn load(config_dir: &Path, key_store: &WgKeyStore) -> Result<Config, ConfigL
     save(config_dir, &default_config).map_err(ConfigLoadError::SaveEror)?;
 
     Ok(default_config)
+}
+
+const BACKUP_PREFIX: &str = "config-backup-";
+
+/// Deletes the copies of config files that did not parse (Ombra). They can hold an account number and an auth token,
+/// so they must not stay after a logout or an account change.
+pub fn delete_backups(config_dir: &Path) {
+    let Ok(entries) = fs::read_dir(config_dir) else { return };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else { continue };
+        if name.starts_with(BACKUP_PREFIX)
+            && name.ends_with(".json")
+            && let Err(error) = fs::remove_file(entry.path())
+        {
+            tracing::error!(message_id = "Rb2nXc6M", ?error, "could not delete a config backup");
+        }
+    }
 }
 
 pub fn save(config_dir: &Path, config: &Config) -> Result<(), ConfigSaveError> {

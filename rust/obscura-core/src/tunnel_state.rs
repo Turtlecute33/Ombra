@@ -201,6 +201,8 @@ impl TunnelState {
         let mut udp_handshake_failures = 0;
         // Other failed connects in a row (Ombra patch P9).
         let mut connect_failures = 0;
+        // Whether the OS has a TUN from this loop, dummy or real (Ombra).
+        let mut os_network_config_set = false;
 
         loop {
             if let Some(last_start) = last_start {
@@ -304,6 +306,7 @@ impl TunnelState {
                             tunnel_state.send_modify(|tunnel_state| tunnel_state.set_connect_error(TunnelConnectError::SetOsNetworkConfig));
                             ControlFlow::Break(())
                         } else {
+                            os_network_config_set = true;
                             match poll_until_change(
                                 &mut client_state_watch,
                                 &target_state,
@@ -347,13 +350,10 @@ impl TunnelState {
                                                 delay_s = delay.as_secs(),
                                                 "waiting before the next connect"
                                             );
-                                            let wait = async {
-                                                select! {
-                                                    _ = sleep(delay) => {}
-                                                    _ = RETRY_CONNECT_NOW.notified() => {}
-                                                }
-                                            };
-                                            if poll_until_change(&mut client_state_watch, &target_state, wait).await.is_none() {
+                                            if poll_until_change(&mut client_state_watch, &target_state, retry_wait(delay))
+                                                .await
+                                                .is_none()
+                                            {
                                                 connect_failures = 0;
                                             }
                                         }
@@ -368,7 +368,6 @@ impl TunnelState {
                                     );
                                     selection_state = ExitSelectionState::default();
                                     udp_handshake_failures = 0;
-                                    connect_failures = 0;
                                     ControlFlow::Continue(Connected {
                                         conn: Arc::new(connection.conn),
                                         exit: connection.exit,
@@ -402,7 +401,21 @@ impl TunnelState {
                         {
                             tracing::error!(message_id = "t7QzSTGu", tunnel.id =% tunnel_id, "failed to set network config");
                             tunnel_state.send_modify(|tunnel_state| tunnel_state.set_connect_error(TunnelConnectError::SetOsNetworkConfig));
+                            // A failed connect too (Ombra patch P9): each attempt makes an API tunnel. Close this one
+                            // before the wait.
+                            drop((conn, connected));
+                            connect_failures += 1;
+                            let delay = connect_retry_delay(connect_failures);
+                            if !delay.is_zero()
+                                && poll_until_change(&mut client_state_watch, &target_state, retry_wait(delay))
+                                    .await
+                                    .is_none()
+                            {
+                                connect_failures = 0;
+                            }
                         } else {
+                            os_network_config_set = true;
+                            connect_failures = 0;
                             tunnel_state.send_modify(|tunnel_state| {
                                 tunnel_state.set_connected(target_args, target_network_interface, relay_transport, connected)
                             });
@@ -447,6 +460,7 @@ impl TunnelState {
                     if let Err(()) = os_impl.unset_os_network_config().await {
                         tracing::error!(message_id = "PEgDYAz0", "failed to unset network config");
                     } else {
+                        os_network_config_set = false;
                         // nothing to do until target args change
                         poll_until_change(&mut client_state_watch, &target_state, pending::<Infallible>()).await;
                     }
@@ -454,17 +468,40 @@ impl TunnelState {
                 TargetState {
                     tunnel_args: Some(_),
                     network_interface: None,
-                    dns_content_block: _,
-                    use_system_dns: _,
-                    local_network_access: _,
-                    tailscale_bypass: _,
-                    wireguard_bypass: _,
+                    dns_content_block,
+                    use_system_dns,
+                    local_network_access,
+                    tailscale_bypass,
+                    wireguard_bypass,
                     relay_transport: _,
                     os_network_config_refresh: _,
                 } => {
+                    #[cfg(not(any(target_os = "android", target_os = "linux")))]
+                    let _ = local_network_access;
+                    #[cfg(not(target_os = "linux"))]
+                    let _ = (tailscale_bypass, wireguard_bypass);
                     tracing::warn!(message_id = "0K9Nep8g", "stuck in connecting state without target interface");
                     selection_state = ExitSelectionState::default();
                     tunnel_state.send_modify(|tunnel_state| tunnel_state.set_connect_error(TunnelConnectError::NoInternet));
+                    // A connect that starts without a network captures traffic too (Ombra), so apps do not send outside
+                    // the tunnel when the network comes. A TUN that is up stays as it is.
+                    if !os_network_config_set {
+                        let dummy = OsNetworkConfig::dummy(
+                            *dns_content_block,
+                            *use_system_dns,
+                            #[cfg(any(target_os = "android", target_os = "linux"))]
+                            *local_network_access,
+                            #[cfg(target_os = "linux")]
+                            *tailscale_bypass,
+                            #[cfg(target_os = "linux")]
+                            *wireguard_bypass,
+                        );
+                        if let Err(()) = os_impl.set_os_network_config(dummy, QuicWgConnPacketSender::new(None)).await {
+                            tracing::error!(message_id = "Vq8sNw2D", "failed to set dummy network config without a network");
+                        } else {
+                            os_network_config_set = true;
+                        }
+                    }
                     // nothing to do until target args changes or a network device becomes available
                     poll_until_change(&mut client_state_watch, &target_state, pending::<Infallible>()).await;
                 }
@@ -518,7 +555,16 @@ static RETRY_CONNECT_NOW: Notify = Notify::const_new();
 
 /// The phone woke up: a wait between failed connects ends at once.
 pub fn retry_connect_now() {
-    RETRY_CONNECT_NOW.notify_waiters();
+    // One stored permit: a wake that comes just before the wait starts still ends it.
+    RETRY_CONNECT_NOW.notify_one();
+}
+
+/// Waits `delay` or until [`retry_connect_now`].
+async fn retry_wait(delay: Duration) {
+    select! {
+        _ = sleep(delay) => {}
+        _ = RETRY_CONNECT_NOW.notified() => {}
+    }
 }
 
 /// The wait after `failures` failed QUIC or TCP/TLS connects in a row, in addition to the 1 s between all attempts
@@ -613,6 +659,32 @@ mod tests {
         .await
         .expect("the config was not set again after the refresh");
         assert!(tunnel_state.borrow().is_connecting());
+    }
+
+    /// A connect that starts without a network sets the dummy config, so apps cannot send outside the tunnel when the
+    /// network comes.
+    #[tokio::test]
+    async fn a_connect_without_a_network_captures_traffic() {
+        let dir = tempfile::tempdir().unwrap();
+        let client_state = ClientState::new(dir.path().into(), WgKeyStore::None, "test".into(), false).unwrap();
+        let os = Arc::new(RecordingOs::default());
+        let mut tunnel_state = TunnelState::new(client_state.clone(), os.clone());
+
+        client_state.set_tunnel_target_state(Some(TunnelArgs::default()), Some(true));
+        let no_internet = tunnel_state.wait_for(|state| {
+            matches!(
+                state,
+                TunnelState::Connecting { connect_error: Some(ErrorAt { error: TunnelConnectError::NoInternet, .. }), .. }
+            )
+        });
+        timeout(Duration::from_secs(10), no_internet).await.unwrap().unwrap();
+        timeout(Duration::from_secs(10), async {
+            while !os.calls().contains(&"set") {
+                sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .expect("no TUN while waiting for a network");
     }
 
     /// Ombra patch P5: a Speed mode handshake without an answer fails with `udpHandshakeFailed` and its API tunnel is

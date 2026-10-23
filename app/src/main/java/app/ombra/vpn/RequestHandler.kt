@@ -31,7 +31,14 @@ class RequestHandler(
     private val core: CoreChannel,
     private val debugBundles: DebugBundles,
     private val allowRawCommands: Boolean,
+    private val deleteWgKey: () -> Unit = {},
 ) {
+    /** After a logout: the last debug bundle holds logs of the account's use, and the key was the account's. */
+    private fun forgetAccountFiles() {
+        debugBundles.deleteAll()
+        deleteWgKey()
+    }
+
     suspend fun handle(requestJson: String): Reply {
         val request = try {
             IpcJson.decodeFromString(Request.serializer(), requestJson)
@@ -52,8 +59,8 @@ class RequestHandler(
         is Request.Login -> controller.login(request.accountNumber).let { JSON_NULL }
         Request.CreateAccount -> jsonString(controller.createAccount())
         Request.EndNewAccountFlow -> controller.endNewAccountFlow().let { JSON_NULL }
-        Request.Logout -> controller.logout().let { JSON_NULL }
-        Request.DeleteAccount -> controller.deleteAccount().let { JSON_NULL }
+        Request.Logout -> controller.logout().also { forgetAccountFiles() }.let { JSON_NULL }
+        Request.DeleteAccount -> controller.deleteAccount().also { forgetAccountFiles() }.let { JSON_NULL }
         Request.RefreshAccount -> controller.refreshAccount().let { JSON_NULL }
         Request.ServiceStatus -> IpcJson.encodeToString(ServiceStatus.serializer(), core.call(CoreCommands.apiServiceStatus()))
         Request.RevealAccountNumber -> jsonString(controller.accountNumber())

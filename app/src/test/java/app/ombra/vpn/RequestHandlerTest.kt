@@ -38,6 +38,7 @@ class RequestHandlerTest {
     private fun TestScope.handler(
         allowRawCommands: Boolean = false,
         settingsDir: File = tmp.root,
+        deleteWgKey: () -> Unit = {},
     ): RequestHandler {
         val controller = CoreController(
             core,
@@ -47,7 +48,7 @@ class RequestHandlerTest {
             testScheduler.timeSource,
         )
         val bundles = DebugBundles(File(tmp.root, "cache"), BundleInfo("1.0", 37), core)
-        return RequestHandler(controller, core, bundles, allowRawCommands)
+        return RequestHandler(controller, core, bundles, allowRawCommands, deleteWgKey)
     }
 
     private suspend fun RequestHandler.send(request: Request): Reply = handle(IpcJson.encodeToString(Request.serializer(), request))
@@ -151,6 +152,24 @@ class RequestHandlerTest {
         )) {
             assertTrue(command in core.sent, "$command was not sent")
         }
+    }
+
+    @Test
+    fun aLogoutThatWorkedDeletesTheDebugBundleAndTheStoredKey() = runTest {
+        var keyDeletes = 0
+        val bundle = File(tmp.root, "cache/${DebugBundles.DIR}/bundle.zip").apply {
+            parentFile!!.mkdirs()
+            writeText("logs")
+        }
+        core.failures[ManagerCmd.Logout::class] = "notLoggedIn"
+        assertEquals(Reply.error("notLoggedIn"), handler(deleteWgKey = { keyDeletes++ }).send(Request.Logout))
+        assertTrue(bundle.exists())
+        assertEquals(0, keyDeletes)
+
+        core.failures.remove(ManagerCmd.Logout::class)
+        assertEquals(Reply.ok("null"), handler(deleteWgKey = { keyDeletes++ }).send(Request.Logout))
+        assertFalse(bundle.exists())
+        assertEquals(1, keyDeletes)
     }
 
     @Test
