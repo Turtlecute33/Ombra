@@ -1,0 +1,25 @@
+pub struct AbortOnDrop(pub tokio::task::AbortHandle);
+
+impl AbortOnDrop {
+    pub fn spawn<F: Future<Output = ()> + Send + 'static>(f: F) -> Self {
+        tokio::spawn(f).into()
+    }
+}
+
+impl Drop for AbortOnDrop {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
+}
+
+impl From<tokio::task::AbortHandle> for AbortOnDrop {
+    fn from(handle: tokio::task::AbortHandle) -> Self {
+        AbortOnDrop(handle)
+    }
+}
+
+impl From<tokio::task::JoinHandle<()>> for AbortOnDrop {
+    fn from(handle: tokio::task::JoinHandle<()>) -> Self {
+        handle.abort_handle().into()
+    }
+}

@@ -1,0 +1,182 @@
+use crate::{ClientCommand, ClientDebugBundleArgs, ClientLoginArgs, ClientStatusArgs};
+use anyhow::Context;
+use chrono::{MappedLocalTime, TimeZone};
+use obscuravpn_api::types::{AccountId, AccountInfo};
+use obscuravpn_client::exit_selection::ExitSelector;
+use obscuravpn_client::linux::debug_bundle::create_combined_debug_bundle;
+use obscuravpn_client::linux::ipc::{LinuxIpcError, run_command};
+use obscuravpn_client::linux::ui_log_dir;
+use obscuravpn_client::manager::{Status, TunnelArgs, VpnStatus};
+use obscuravpn_client::manager_cmd::{ManagerCmd, ManagerCmdErrorCode};
+
+#[derive(thiserror::Error, Debug)]
+pub enum ClientError {
+    #[error("The Obscura API is unreachable.")]
+    ApiUnreachable,
+    #[error("Insufficient permissions to connect to service.")]
+    InsufficientPermissions,
+    #[error("Unexpected error. Details: {0:#}")]
+    Unexpected(#[from] anyhow::Error),
+    #[error("The Obscura VPN service is not running.")]
+    NoService,
+    #[error("Malformed account ID.")]
+    MalformedAccountId,
+    #[error("Not logged in.")]
+    NotLoggedIn,
+    #[error("The running Obscura VPN service does not match this app version ({app_version}).")]
+    VersionMismatch { service_version: String, app_version: String },
+}
+
+impl From<ManagerCmdErrorCode> for ClientError {
+    fn from(error: ManagerCmdErrorCode) -> ClientError {
+        match error {
+            ManagerCmdErrorCode::ApiInvalidAccountId => ClientError::MalformedAccountId,
+            ManagerCmdErrorCode::ApiUnreachable => ClientError::ApiUnreachable,
+            ManagerCmdErrorCode::NotLoggedIn => ClientError::NotLoggedIn,
+            ManagerCmdErrorCode::ApiAssociateAccountConflict
+            | ManagerCmdErrorCode::ApiError
+            | ManagerCmdErrorCode::ApiNoLongerSupported
+            | ManagerCmdErrorCode::ApiRateLimitExceeded
+            | ManagerCmdErrorCode::ApiSaleNotFound
+            | ManagerCmdErrorCode::ApiSignupLimitExceeded
+            | ManagerCmdErrorCode::ConfigSaveError
+            | ManagerCmdErrorCode::Other => anyhow::Error::msg(error.as_static_str()).into(),
+        }
+    }
+}
+
+impl From<LinuxIpcError> for ClientError {
+    fn from(error: LinuxIpcError) -> ClientError {
+        match error {
+            LinuxIpcError::InsufficientPermissions => ClientError::InsufficientPermissions,
+            LinuxIpcError::NoListener => ClientError::NoService,
+            LinuxIpcError::VersionMismatch { service_version, app_version } => ClientError::VersionMismatch { service_version, app_version },
+            LinuxIpcError::Other => ClientError::Unexpected(anyhow::Error::msg("unexpected IPC error")),
+        }
+    }
+}
+
+pub async fn run(cmd: ClientCommand) -> Result<(), ClientError> {
+    match cmd {
+        ClientCommand::AddOperator { users } => crate::add_operator::run_add_operator(users).await,
+        ClientCommand::Login(args) => login(args).await,
+        ClientCommand::Connect(_args) => go_to_target_state(Some(TunnelArgs { exit: ExitSelector::Any {} })).await,
+        ClientCommand::Disconnect(_args) => go_to_target_state(None).await,
+        ClientCommand::Status(args) => status(args).await,
+        ClientCommand::DebugBundle(args) => debug_bundle(args).await,
+    }
+}
+
+async fn debug_bundle(args: ClientDebugBundleArgs) -> Result<(), ClientError> {
+    let log_dir = ui_log_dir().filter(|dir| dir.is_dir());
+    let path = create_combined_debug_bundle(args.feedback, log_dir.as_deref())
+        .await
+        .map_err(|()| ClientError::Unexpected(anyhow::Error::msg("failed to create debug bundle")))?;
+    println!("{path}");
+    Ok(())
+}
+
+async fn status(args: ClientStatusArgs) -> Result<(), ClientError> {
+    let get_account_info_result: Result<AccountInfo, _> = run_command(ManagerCmd::ApiGetAccountInfo {}).await?;
+    match get_account_info_result {
+        Ok(account_info) => {
+            if !args.json {
+                println!("Account is {}.", account_info_summary(&account_info))
+            }
+        }
+        Err(error) => eprintln!("Failed to update account info: {}", ClientError::from(error)),
+    }
+    let mut known_version = None;
+    loop {
+        let status: Status = run_command(ManagerCmd::GetStatus { known_version }).await??;
+        known_version = Some(status.version);
+        if args.json {
+            let json = serde_json::to_string_pretty(&status)
+                .map_err(anyhow::Error::new)
+                .context("JSON encoding failed")?;
+            println!("{json}");
+        } else {
+            println!("VPN is {}.", vpn_status_summary(&status.vpn_status));
+        }
+        if !args.follow {
+            break Ok(());
+        }
+    }
+}
+
+async fn login(args: ClientLoginArgs) -> Result<(), ClientError> {
+    let account = match args.account {
+        Some(account) => account,
+        None => {
+            if std::io::IsTerminal::is_terminal(&std::io::stdin()) {
+                eprint!("Account number: ");
+            }
+            let mut line = String::new();
+            std::io::stdin()
+                .read_line(&mut line)
+                .map_err(|error| anyhow::Error::new(error).context("failed to read account number from stdin"))?;
+            line.trim_end_matches(['\r', '\n']).to_string()
+        }
+    };
+    if account.is_empty() {
+        return Err(ClientError::MalformedAccountId);
+    }
+    let _: () = run_command(ManagerCmd::Login { account_id: AccountId::from_string_unchecked(account), validate: !args.offline }).await??;
+    if !args.offline {
+        eprintln!("successfully logged in");
+    } else {
+        eprintln!("set account number in config without checking validity (offline mode)");
+    }
+    Ok(())
+}
+
+async fn go_to_target_state(target_state: Option<TunnelArgs>) -> Result<(), ClientError> {
+    run_command::<()>(ManagerCmd::SetTunnelArgs { args: target_state.clone(), active: Some(target_state.is_some()) }).await??;
+    eprintln!("updated target state");
+    let mut known_version = None;
+    loop {
+        let status: Status = run_command(ManagerCmd::GetStatus { known_version }).await??;
+        known_version = Some(status.version);
+        eprintln!("{}", vpn_status_summary(&status.vpn_status));
+        match (&status.vpn_status, &target_state) {
+            (VpnStatus::Connected { exit, .. }, Some(TunnelArgs { exit: exit_selector })) if exit_selector.matches(exit) => break,
+            (VpnStatus::Disconnected {}, None) => break,
+            _ => {}
+        }
+    }
+    eprintln!("reached target state");
+    Ok(())
+}
+
+fn vpn_status_summary(vpn_status: &VpnStatus) -> String {
+    match vpn_status {
+        VpnStatus::Connecting { connect_error: Some(error_code), .. } => {
+            format!("connecting (error: \"{}\")", error_code.as_static_str())
+        }
+        VpnStatus::Connecting { connect_error: None, .. } => "connecting".to_string(),
+        VpnStatus::Connected { exit, .. } => format!(
+            "connected to {} in {} ({})",
+            exit.id,
+            exit.city_name,
+            exit.city_code.country_code.0.to_uppercase()
+        ),
+        VpnStatus::Disconnected { .. } => "disconnected".to_string(),
+    }
+}
+
+fn account_info_summary(account_info: &AccountInfo) -> String {
+    let mut summary = String::new();
+    if account_info.active {
+        if let Some(expiry) = account_info.current_expiry {
+            summary += "active";
+            if let MappedLocalTime::Single(timestamp) = chrono::Local.timestamp_opt(expiry, 0) {
+                summary += &format!(" until {}", timestamp)
+            };
+        } else {
+            summary += "active and subscribed";
+        }
+    } else {
+        summary += "expired (top-up or subscribe to activate)";
+    }
+    summary
+}

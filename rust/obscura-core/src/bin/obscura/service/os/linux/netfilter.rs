@@ -1,0 +1,1009 @@
+//! We maintain nftables tables with the following purposes:
+//! - Restore fwmark on all packets of marked flows.
+//! - Drop non-tunnel packets that don't carry our fwmark. Exceptions documented below.
+//! - Drop unsolicited tun device ingress.
+//! - Drop packets for the tunnel address arriving anywhere else.
+//! - Drop unsolicited packets unless explicitly exempt (e.g. local network, Tailscale, WireGuard).
+//! - Drop ARP requests for the tunnel address.
+//!
+//! The tables carry the owner flag, so they can't be modified by other netlink sockets and the kernel destroys them when our netlink socket closes. The socket is stored in the systemd fdstore so the tables survive service restarts.
+//!
+//! The complete ruleset, engaged, with local network access enabled:
+//!
+//! ```text
+//! $ sudo nft list table inet obscura
+//! table inet obscura { # progname obscura
+//!     flags owner # dies with our netlink socket, read-only for everyone else
+//!
+//!     # Save the mark of outgoing service traffic to its flow's conntrack entry.
+//!     chain mark-save {
+//!         type filter hook postrouting priority mangle; policy accept;
+//!         meta mark 0x6f627363 ct mark set meta mark
+//!     }
+//!
+//!     # Restore the mark on inbound packets of marked flows. If strict reverse path filtering is enabled, this is required to receive API and relay response traffic while connected.
+//!     chain mark-restore {
+//!         type filter hook prerouting priority mangle; policy accept;
+//!         ct mark 0x6f627363 meta mark set ct mark
+//!     }
+//!
+//!     # Restore the mark on outgoing packets of marked flows. Route chains repeat the routing decision when the mark changes, so these packets leave outside the tunnel.
+//!     chain mark-restore-output {
+//!         type route hook output priority mangle; policy accept;
+//!         ct mark 0x6f627363 meta mark set ct mark
+//!     }
+//!
+//!     # After conntrack so flow direction is known, but before DNAT may change the destination. This chain only exists if the target state is connected.
+//!     chain tunnel-ingress {
+//!         type filter hook prerouting priority -199; policy accept;
+//!         # Loopback traffic is always accepted.
+//!         iifname "lo" accept
+//!         # Only replies to flows we initiated may come out of the tunnel.
+//!         iifname "obscuravpn" ct direction reply accept
+//!         iifname "obscuravpn" drop
+//!         # The tunnel address is reachable only through the tunnel and from the host itself.
+//!         ip daddr 10.64.12.34 drop
+//!         ip6 daddr fc00:bbbb:bbbb:bb01::1:2345 drop
+//!     }
+//!
+//!     # Unsolicited packets for this host are dropped. Forwarded traffic does not pass this hook. This chain only exists if the target state is connected.
+//!     chain input {
+//!         type filter hook input priority filter; policy drop;
+//!         # Loopback traffic is always accepted.
+//!         iifname "lo" accept
+//!         # Incoming flows the administrator marked. Setting the mark requires CAP_NET_ADMIN. Saving it to conntrack marks the replies too.
+//!         meta mark 0x6f627363 ct mark set meta mark accept
+//!         # Replies to flows this host initiated, including tunnel traffic that passed tunnel-ingress and ICMP errors for our flows.
+//!         ct direction reply accept
+//!         # DHCPv4 server responses.
+//!         meta nfproto ipv4 udp sport 67 udp dport 68 accept
+//!         # DHCPv6 server responses.
+//!         ip6 saddr fe80::/10 udp sport 547 udp dport 546 accept
+//!         # IPv6 router and neighbor discovery.
+//!         ip6 saddr fe80::/10 icmpv6 type nd-router-advert accept
+//!         ip6 saddr fe80::/10 icmpv6 type nd-redirect accept
+//!         icmpv6 type nd-neighbor-solicit accept
+//!         icmpv6 type nd-neighbor-advert accept
+//!         # Traffic arriving through wireguard devices, rendered only if enabled.
+//!         meta iifkind "wireguard" accept
+//!         # Traffic arriving through the Tailscale device, rendered only if enabled.
+//!         iifname "tailscale0" accept
+//!         # Flows initiated from the local network, rendered only if enabled.
+//!         ip saddr 10.0.0.0/8 accept
+//!         ip saddr 172.16.0.0/12 accept
+//!         ip saddr 192.168.0.0/16 accept
+//!         ip saddr 169.254.0.0/16 accept
+//!         ip6 saddr fe80::/10 accept
+//!         ip6 saddr fc00::/7 accept
+//!     }
+//!
+//!     # All traffic not explicitly accepted here is dropped. This chain only exists if the target state is connected.
+//!     chain kill-switch {
+//!         type filter hook postrouting priority filter; policy drop;
+//!         # Loopback traffic is always accepted.
+//!         oifname "lo" accept
+//!         # Service relay and API traffic. Setting the mark requires CAP_NET_ADMIN.
+//!         meta mark 0x6f627363 accept
+//!         # All traffic entering the tun device is accepted.
+//!         oifname "obscuravpn" accept
+//!         # Forwarded replies arriving through the tun device (e.g. for flows from docker containers).
+//!         iifname "obscuravpn" ct direction reply accept
+//!         # Locally generated ICMP errors for accepted flows (e.g. fragmentation needed for forwarded packets from docker containers).
+//!         iif 0 meta l4proto icmp ct state & related == related accept
+//!         iif 0 meta l4proto ipv6-icmp ct state & related == related accept
+//!         # Tunnel resolver traffic may only leave via the tun device.
+//!         ip daddr 10.64.0.1 drop
+//!         # Traffic entering wireguard devices, rendered only if enabled.
+//!         meta oifkind "wireguard" accept
+//!         # Tailscale traffic entering its tun device and its marked underlay traffic, rendered only if enabled.
+//!         oifname "tailscale0" accept
+//!         meta mark & 0x00ff0000 == 0x00080000 accept
+//!         # Link scope DHCPv4 traffic.
+//!         ip daddr 255.255.255.255 udp sport 68 udp dport 67 accept
+//!         # Link scope DHCPv6 traffic.
+//!         ip6 daddr ff02::1:2 udp sport 546 udp dport 547 accept
+//!         # IPv6 neighbor discovery.
+//!         icmpv6 type nd-router-solicit accept
+//!         icmpv6 type nd-neighbor-solicit accept
+//!         icmpv6 type nd-neighbor-advert accept
+//!         # DNS to LAN resolvers, dropped ahead of the local network accepts. Not rendered if system DNS is used.
+//!         udp dport 53 drop
+//!         udp dport 853 drop
+//!         tcp dport 53 drop
+//!         tcp dport 853 drop
+//!         # Local network, rendered only if enabled.
+//!         ip daddr 10.0.0.0/8 accept
+//!         ip daddr 172.16.0.0/12 accept
+//!         ip daddr 192.168.0.0/16 accept
+//!         ip daddr 169.254.0.0/16 accept
+//!         ip daddr 255.255.255.255 accept
+//!         ip daddr 224.0.0.0/24 accept
+//!         ip daddr 239.0.0.0/8 accept
+//!         ip6 daddr fe80::/10 accept
+//!         ip6 daddr fc00::/7 accept
+//!         ip6 daddr ff01::/16 accept
+//!         ip6 daddr ff02::/16 accept
+//!         ip6 daddr ff03::/16 accept
+//!         ip6 daddr ff04::/16 accept
+//!         ip6 daddr ff05::/16 accept
+//!     }
+//! }
+//!
+//! $ sudo nft list table arp obscura
+//! table arp obscura { # progname obscura
+//!     flags owner
+//!
+//!     # Drop ARP requests for the tunnel address. This chain only exists if the target state is connected.
+//!     chain arp-input {
+//!         type filter hook input priority filter; policy accept;
+//!         arp operation request arp daddr ip 10.64.12.34 drop
+//!     }
+//! }
+//! ```
+
+use crate::service::os::linux::TrafficPolicy;
+use crate::service::os::linux::fd_store::FdStore;
+use ipnetwork::Ipv6Network;
+use nix::errno::Errno;
+use nix::fcntl::{FcntlArg, OFlag, fcntl};
+use nix::sys::socket::{AddressFamily, MsgFlags, NetlinkAddr, SockFlag, SockProtocol, SockType, bind, getsockname, recv, send, socket};
+use obscuravpn_client::int_helper::{try_c_int_into_u8, try_c_int_into_u16, try_c_int_into_u32, u32_into_usize};
+use obscuravpn_client::local_network::{LAN_V4, LAN_V6};
+use obscuravpn_client::net::FWMARK;
+use std::io;
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use std::os::fd::{AsFd, AsRawFd, OwnedFd};
+use tokio::io::Interest;
+use tokio::io::unix::AsyncFd;
+
+const NLM_F_REQUEST: u16 = try_c_int_into_u16(libc::NLM_F_REQUEST).unwrap();
+const NLM_F_ACK: u16 = try_c_int_into_u16(libc::NLM_F_ACK).unwrap();
+const NLM_F_CREATE: u16 = try_c_int_into_u16(libc::NLM_F_CREATE).unwrap();
+const NLM_F_APPEND: u16 = try_c_int_into_u16(libc::NLM_F_APPEND).unwrap();
+const NLMSG_ERROR: u16 = try_c_int_into_u16(libc::NLMSG_ERROR).unwrap();
+const NLA_F_NESTED: u16 = try_c_int_into_u16(libc::NLA_F_NESTED).unwrap();
+
+const NFNETLINK_V0: u8 = try_c_int_into_u8(libc::NFNETLINK_V0).unwrap();
+const NFNL_SUBSYS_NFTABLES: u16 = try_c_int_into_u16(libc::NFNL_SUBSYS_NFTABLES).unwrap();
+const NFNL_MSG_BATCH_BEGIN: u16 = try_c_int_into_u16(libc::NFNL_MSG_BATCH_BEGIN).unwrap();
+const NFNL_MSG_BATCH_END: u16 = try_c_int_into_u16(libc::NFNL_MSG_BATCH_END).unwrap();
+const NFT_MSG_NEWTABLE: u16 = (NFNL_SUBSYS_NFTABLES << 8) | try_c_int_into_u16(libc::NFT_MSG_NEWTABLE).unwrap();
+const NFT_MSG_NEWCHAIN: u16 = (NFNL_SUBSYS_NFTABLES << 8) | try_c_int_into_u16(libc::NFT_MSG_NEWCHAIN).unwrap();
+const NFT_MSG_NEWRULE: u16 = (NFNL_SUBSYS_NFTABLES << 8) | try_c_int_into_u16(libc::NFT_MSG_NEWRULE).unwrap();
+const NFT_MSG_DESTROYTABLE: u16 = (NFNL_SUBSYS_NFTABLES << 8) | 26;
+
+const NFPROTO_UNSPEC: u8 = try_c_int_into_u8(libc::NFPROTO_UNSPEC).unwrap();
+const NFPROTO_INET: u8 = try_c_int_into_u8(libc::NFPROTO_INET).unwrap();
+const NFPROTO_ARP: u8 = try_c_int_into_u8(libc::NFPROTO_ARP).unwrap();
+const AF_INET: u8 = try_c_int_into_u8(libc::AF_INET).unwrap();
+const AF_INET6: u8 = try_c_int_into_u8(libc::AF_INET6).unwrap();
+
+const NF_INET_PRE_ROUTING: u32 = try_c_int_into_u32(libc::NF_INET_PRE_ROUTING).unwrap();
+const NF_INET_LOCAL_IN: u32 = try_c_int_into_u32(libc::NF_INET_LOCAL_IN).unwrap();
+const NF_INET_LOCAL_OUT: u32 = try_c_int_into_u32(libc::NF_INET_LOCAL_OUT).unwrap();
+const NF_INET_POST_ROUTING: u32 = try_c_int_into_u32(libc::NF_INET_POST_ROUTING).unwrap();
+const NF_ARP_IN: u32 = try_c_int_into_u32(libc::NF_ARP_IN).unwrap();
+const NF_IP_PRI_CONNTRACK: i32 = libc::NF_IP_PRI_CONNTRACK;
+const NF_IP_PRI_MANGLE: i32 = libc::NF_IP_PRI_MANGLE;
+const NF_IP_PRI_FILTER: i32 = libc::NF_IP_PRI_FILTER;
+
+const NF_DROP: u32 = try_c_int_into_u32(libc::NF_DROP).unwrap();
+const NF_ACCEPT: u32 = try_c_int_into_u32(libc::NF_ACCEPT).unwrap();
+
+const NFTA_TABLE_NAME: u16 = 1;
+const NFTA_TABLE_FLAGS: u16 = 2;
+const NFT_TABLE_F_OWNER: u32 = 0x2;
+
+const NFTA_CHAIN_TABLE: u16 = 1;
+const NFTA_CHAIN_NAME: u16 = 3;
+const NFTA_CHAIN_HOOK: u16 = 4;
+const NFTA_CHAIN_POLICY: u16 = 5;
+const NFTA_CHAIN_TYPE: u16 = 7;
+const NFTA_HOOK_HOOKNUM: u16 = 1;
+const NFTA_HOOK_PRIORITY: u16 = 2;
+
+const NFTA_RULE_TABLE: u16 = 1;
+const NFTA_RULE_CHAIN: u16 = 2;
+const NFTA_RULE_EXPRESSIONS: u16 = 4;
+const NFTA_LIST_ELEM: u16 = 1;
+const NFTA_EXPR_NAME: u16 = 1;
+const NFTA_EXPR_DATA: u16 = 2;
+
+const NFTA_DATA_VALUE: u16 = 1;
+const NFTA_DATA_VERDICT: u16 = 2;
+const NFTA_VERDICT_CODE: u16 = 1;
+
+const NFT_REG_VERDICT: u32 = try_c_int_into_u32(libc::NFT_REG_VERDICT).unwrap();
+const NFT_REG_1: u32 = try_c_int_into_u32(libc::NFT_REG_1).unwrap();
+
+const NFTA_META_DREG: u16 = 1;
+const NFTA_META_KEY: u16 = 2;
+const NFTA_META_SREG: u16 = 3;
+const NFT_META_MARK: u32 = try_c_int_into_u32(libc::NFT_META_MARK).unwrap();
+const NFT_META_IIFNAME: u32 = try_c_int_into_u32(libc::NFT_META_IIFNAME).unwrap();
+const NFT_META_OIFNAME: u32 = try_c_int_into_u32(libc::NFT_META_OIFNAME).unwrap();
+const NFT_META_IIF: u32 = try_c_int_into_u32(libc::NFT_META_IIF).unwrap();
+const LOCALLY_GENERATED_IIF: u32 = 0;
+const NFT_META_IIFKIND: u32 = 26;
+const NFT_META_OIFKIND: u32 = 27;
+const NFT_META_NFPROTO: u32 = try_c_int_into_u32(libc::NFT_META_NFPROTO).unwrap();
+const NFT_META_L4PROTO: u32 = try_c_int_into_u32(libc::NFT_META_L4PROTO).unwrap();
+
+const NFTA_CMP_SREG: u16 = 1;
+const NFTA_CMP_OP: u16 = 2;
+const NFTA_CMP_DATA: u16 = 3;
+const NFT_CMP_EQ: u32 = try_c_int_into_u32(libc::NFT_CMP_EQ).unwrap();
+
+const NFTA_CT_DREG: u16 = 1;
+const NFTA_CT_KEY: u16 = 2;
+const NFTA_CT_SREG: u16 = 4;
+const NFT_CT_MARK: u32 = try_c_int_into_u32(libc::NFT_CT_MARK).unwrap();
+const NFT_CT_DIRECTION: u32 = try_c_int_into_u32(libc::NFT_CT_DIRECTION).unwrap();
+const NFT_CT_STATE: u32 = try_c_int_into_u32(libc::NFT_CT_STATE).unwrap();
+const IP_CT_DIR_REPLY: u8 = 1;
+const NF_CT_STATE_RELATED_BIT: u32 = 1 << 2;
+
+const NFTA_IMMEDIATE_DREG: u16 = 1;
+const NFTA_IMMEDIATE_DATA: u16 = 2;
+
+const NFTA_PAYLOAD_DREG: u16 = 1;
+const NFTA_PAYLOAD_BASE: u16 = 2;
+const NFTA_PAYLOAD_OFFSET: u16 = 3;
+const NFTA_PAYLOAD_LEN: u16 = 4;
+const NFT_PAYLOAD_NETWORK_HEADER: u32 = try_c_int_into_u32(libc::NFT_PAYLOAD_NETWORK_HEADER).unwrap();
+const NFT_PAYLOAD_TRANSPORT_HEADER: u32 = try_c_int_into_u32(libc::NFT_PAYLOAD_TRANSPORT_HEADER).unwrap();
+
+const NFTA_BITWISE_SREG: u16 = 1;
+const NFTA_BITWISE_DREG: u16 = 2;
+const NFTA_BITWISE_LEN: u16 = 3;
+const NFTA_BITWISE_MASK: u16 = 4;
+const NFTA_BITWISE_XOR: u16 = 5;
+
+const IPPROTO_UDP: u8 = try_c_int_into_u8(libc::IPPROTO_UDP).unwrap();
+const IPPROTO_TCP: u8 = try_c_int_into_u8(libc::IPPROTO_TCP).unwrap();
+const IPPROTO_ICMP: u8 = try_c_int_into_u8(libc::IPPROTO_ICMP).unwrap();
+const IPPROTO_ICMPV6: u8 = try_c_int_into_u8(libc::IPPROTO_ICMPV6).unwrap();
+
+const ND_ROUTER_SOLICIT: u8 = 133;
+const ND_ROUTER_ADVERT: u8 = 134;
+const ND_NEIGHBOR_SOLICIT: u8 = 135;
+const ND_NEIGHBOR_ADVERT: u8 = 136;
+const ND_REDIRECT: u8 = 137;
+
+// Tailscale claims only mark bits 16:23. We match under its mask like its own routing rules do.
+const TAILSCALE_FWMARK_MASK: u32 = 0xff0000;
+const TAILSCALE_BYPASS_MARK: u32 = 0x80000;
+
+const IPV4_SADDR_OFFSET: u32 = 12;
+const IPV4_DADDR_OFFSET: u32 = 16;
+const IPV6_SADDR_OFFSET: u32 = 8;
+const IPV6_DADDR_OFFSET: u32 = 24;
+const LINK_LOCAL_V6: Ipv6Network = Ipv6Network::new_checked(Ipv6Addr::new(0xfe80, 0, 0, 0, 0, 0, 0, 0), 10).unwrap();
+
+const ARP_OPERATION_OFFSET: u32 = 6;
+const ARP_TARGET_IP_OFFSET: u32 = 24;
+const ARP_OPERATION_REQUEST: u16 = 1;
+
+const FD_NAME_NFT: &str = "nft";
+
+const TABLE_NAME: &str = "obscura";
+const CHAIN_MARK_SAVE: &str = "mark-save";
+const CHAIN_MARK_RESTORE: &str = "mark-restore";
+const CHAIN_MARK_RESTORE_OUTPUT: &str = "mark-restore-output";
+const CHAIN_TUNNEL_INGRESS: &str = "tunnel-ingress";
+const CHAIN_INPUT: &str = "input";
+const CHAIN_KILL_SWITCH: &str = "kill-switch";
+const CHAIN_ARP_INPUT: &str = "arp-input";
+
+pub struct NftTable {
+    socket: AsyncFd<OwnedFd>,
+    last_unchecked_seq: Option<u32>,
+}
+
+impl NftTable {
+    pub fn create_or_adopt(fd_store: &mut FdStore) -> Result<Self, ()> {
+        let socket = match fd_store.take(FD_NAME_NFT) {
+            Some(stored_fd) => {
+                tracing::info!(message_id = "bQ6wZn3H", "adopting stored nftables socket, leaving the table untouched");
+                stored_fd
+            }
+            None => {
+                tracing::info!(message_id = "rT8kFm2W", "no stored nftables socket, creating a new one");
+                let socket = socket(
+                    AddressFamily::Netlink,
+                    SockType::Raw,
+                    SockFlag::SOCK_CLOEXEC,
+                    SockProtocol::NetlinkNetFilter,
+                )
+                .map_err(|error| {
+                    tracing::error!(message_id = "vB7mQd3J", ?error, "failed to create netfilter netlink socket");
+                })?;
+                bind(socket.as_raw_fd(), &NetlinkAddr::new(0, 0)).map_err(|error| {
+                    tracing::error!(message_id = "nK2xWf9S", ?error, "failed to bind netfilter netlink socket");
+                })?;
+                fd_store.remove_old_and_store(FD_NAME_NFT, socket.as_fd());
+                socket
+            }
+        };
+
+        let addr: NetlinkAddr = getsockname(socket.as_raw_fd()).map_err(|error| {
+            tracing::error!(message_id = "yD5rGm8C", ?error, "failed to get netlink socket address");
+        })?;
+        let flags = fcntl(&socket, FcntlArg::F_GETFL).map_err(|error| {
+            tracing::error!(message_id = "qF6jZt2H", ?error, "failed to get netlink socket flags");
+        })?;
+        fcntl(&socket, FcntlArg::F_SETFL(OFlag::from_bits_retain(flags) | OFlag::O_NONBLOCK)).map_err(|error| {
+            tracing::error!(message_id = "sM9cVb4L", ?error, "failed to set netlink socket nonblocking");
+        })?;
+        let socket = AsyncFd::new(socket).map_err(|error| {
+            tracing::error!(
+                message_id = "xT3nPk7W",
+                ?error,
+                "failed to register netlink socket with the async runtime"
+            );
+        })?;
+        tracing::info!(message_id = "jP4vXc9L", portid = addr.pid(), "netfilter netlink socket ready");
+        Ok(Self { socket, last_unchecked_seq: None })
+    }
+
+    pub async fn apply_ruleset(&mut self, policy: TrafficPolicy, tun_name: &str) -> Result<(), ()> {
+        self.discard_stale_replies();
+        let mut batch = Vec::new();
+
+        let begin = Msg::new(NFNL_MSG_BATCH_BEGIN, NLM_F_REQUEST, self.next_seq(), NFPROTO_UNSPEC, NFNL_SUBSYS_NFTABLES);
+        batch.extend(begin.finish());
+
+        for family in [NFPROTO_INET, NFPROTO_ARP] {
+            let mut destroy = self.change_msg(family, NFT_MSG_DESTROYTABLE, 0);
+            destroy.attr_str(NFTA_TABLE_NAME, TABLE_NAME);
+            batch.extend(destroy.finish());
+        }
+
+        for Table { family, chains } in tables(&policy, tun_name) {
+            let mut table = self.change_msg(family, NFT_MSG_NEWTABLE, NLM_F_CREATE);
+            table.attr_str(NFTA_TABLE_NAME, TABLE_NAME);
+            table.attr_u32_be(NFTA_TABLE_FLAGS, NFT_TABLE_F_OWNER);
+            batch.extend(table.finish());
+
+            for Chain { name, kind, hook, priority, policy: chain_policy, rules } in chains {
+                let mut chain = self.change_msg(family, NFT_MSG_NEWCHAIN, NLM_F_CREATE);
+                chain.attr_str(NFTA_CHAIN_TABLE, TABLE_NAME);
+                chain.attr_str(NFTA_CHAIN_NAME, name);
+                chain.attr_str(NFTA_CHAIN_TYPE, kind.into());
+                chain.nested(NFTA_CHAIN_HOOK, |chain| {
+                    chain.attr_u32_be(NFTA_HOOK_HOOKNUM, hook);
+                    chain.attr_u32_be(NFTA_HOOK_PRIORITY, priority.cast_unsigned());
+                });
+                chain.attr_u32_be(NFTA_CHAIN_POLICY, chain_policy);
+                batch.extend(chain.finish());
+
+                for exprs in rules {
+                    let mut rule = self.change_msg(family, NFT_MSG_NEWRULE, NLM_F_CREATE | NLM_F_APPEND);
+                    rule.attr_str(NFTA_RULE_TABLE, TABLE_NAME);
+                    rule.attr_str(NFTA_RULE_CHAIN, name);
+                    rule.nested(NFTA_RULE_EXPRESSIONS, |rule| {
+                        for expr in &exprs {
+                            expr.emit(rule);
+                        }
+                    });
+                    batch.extend(rule.finish());
+                }
+            }
+        }
+
+        let end = Msg::new(NFNL_MSG_BATCH_END, NLM_F_REQUEST, 0, NFPROTO_UNSPEC, NFNL_SUBSYS_NFTABLES);
+        batch.extend(end.finish());
+
+        tracing::info!(message_id = "wK6dPn2V", ?policy, "sending nftables batch");
+        self.send_batch(&batch).await?;
+        tracing::info!(message_id = "rT8jFq4X", ?policy, "checking nftables acks");
+        self.check_acks().await?;
+        tracing::info!(message_id = "gN7sDh5Y", ?policy, "applied nftables ruleset");
+        Ok(())
+    }
+
+    async fn send_batch(&mut self, batch: &[u8]) -> Result<(), ()> {
+        let sent = self
+            .socket
+            .async_io(Interest::WRITABLE, |socket| {
+                send(socket.as_raw_fd(), batch, MsgFlags::empty()).map_err(io::Error::from)
+            })
+            .await
+            .map_err(|error| {
+                tracing::error!(message_id = "fV3kNq8Z", ?error, "failed to send nftables batch");
+            })?;
+        if sent != batch.len() {
+            tracing::error!(message_id = "aW6tDj2P", sent, len = batch.len(), "short send of nftables batch");
+            return Err(());
+        }
+        Ok(())
+    }
+
+    fn discard_stale_replies(&mut self) {
+        self.last_unchecked_seq = None;
+        let mut buf = vec![0u8; 1 << 16];
+        let mut count = 0u32;
+        loop {
+            match recv(self.socket.get_ref().as_raw_fd(), &mut buf, MsgFlags::empty()) {
+                Ok(_) => count += 1,
+                Err(Errno::EWOULDBLOCK) => break,
+                Err(Errno::EINTR | Errno::ENOBUFS) => {}
+                Err(error) => {
+                    tracing::error!(message_id = "mB4wRz7K", ?error, "failed to drain stale netlink replies");
+                    break;
+                }
+            }
+        }
+        if count > 0 {
+            tracing::warn!(message_id = "tV6pXk3D", count, "discarded stale netlink replies");
+        }
+    }
+
+    fn change_msg(&mut self, family: u8, msg_type: u16, extra_flags: u16) -> Msg {
+        Msg::new(msg_type, NLM_F_REQUEST | NLM_F_ACK | extra_flags, self.next_seq(), family, 0)
+    }
+
+    fn next_seq(&mut self) -> u32 {
+        let next = match self.last_unchecked_seq {
+            Some(seq) => seq + 1,
+            None => 1,
+        };
+        self.last_unchecked_seq = Some(next);
+        next
+    }
+
+    async fn check_acks(&mut self) -> Result<(), ()> {
+        let Some(last_unchecked_seq) = self.last_unchecked_seq else {
+            tracing::error!(message_id = "vJ4qXt8N", "no outstanding netlink seq to await");
+            return Err(());
+        };
+        let mut buf = vec![0u8; 1 << 16];
+        loop {
+            let n = self
+                .socket
+                .async_io(Interest::READABLE, |socket| {
+                    recv(socket.as_raw_fd(), &mut buf, MsgFlags::empty()).map_err(io::Error::from)
+                })
+                .await
+                .map_err(|error| {
+                    tracing::error!(message_id = "zR9mBc5X", ?error, "failed to receive nftables reply");
+                })?;
+            let mut offset = 0;
+            while offset + 16 <= n {
+                let len = u32_into_usize(u32::from_ne_bytes(buf[offset..offset + 4].try_into().unwrap()));
+                let msg_type = u16::from_ne_bytes(buf[offset + 4..offset + 6].try_into().unwrap());
+                let seq = u32::from_ne_bytes(buf[offset + 8..offset + 12].try_into().unwrap());
+                if len < 16 || len > n - offset {
+                    tracing::error!(message_id = "eK4sVw7H", len, offset, n, "truncated netlink message");
+                    return Err(());
+                }
+                if msg_type == NLMSG_ERROR {
+                    if len < 20 {
+                        tracing::error!(message_id = "tG2xLp6M", len, "truncated netlink error message");
+                        return Err(());
+                    }
+                    let code = i32::from_ne_bytes(buf[offset + 16..offset + 20].try_into().unwrap());
+                    if code != 0 {
+                        tracing::error!(message_id = "dQ8nFy3C", seq, error = ?io::Error::from_raw_os_error(-code), "nftables batch rejected");
+                        return Err(());
+                    } else if seq == last_unchecked_seq {
+                        self.last_unchecked_seq = None;
+                        return Ok(());
+                    }
+                }
+                offset += len.next_multiple_of(4);
+            }
+        }
+    }
+}
+
+struct Table {
+    family: u8,
+    chains: Vec<Chain>,
+}
+
+#[derive(strum::IntoStaticStr)]
+#[strum(serialize_all = "snake_case")]
+enum ChainKind {
+    Filter,
+    Route,
+}
+
+struct Chain {
+    name: &'static str,
+    kind: ChainKind,
+    hook: u32,
+    priority: i32,
+    policy: u32,
+    rules: Vec<Vec<Expr>>,
+}
+
+fn tables(policy: &TrafficPolicy, tun_name: &str) -> Vec<Table> {
+    use Expr::*;
+    let mark = FWMARK.to_ne_bytes().to_vec();
+    let restore_mark = vec![CtLoadMark, CmpEq(mark.clone()), MetaSetMark];
+    let mut inet_chains = vec![
+        Chain {
+            name: CHAIN_MARK_SAVE,
+            kind: ChainKind::Filter,
+            hook: NF_INET_POST_ROUTING,
+            priority: NF_IP_PRI_MANGLE,
+            policy: NF_ACCEPT,
+            rules: vec![vec![MetaLoad(NFT_META_MARK), CmpEq(mark), CtSetMark]],
+        },
+        Chain {
+            name: CHAIN_MARK_RESTORE,
+            kind: ChainKind::Filter,
+            hook: NF_INET_PRE_ROUTING,
+            priority: NF_IP_PRI_MANGLE,
+            policy: NF_ACCEPT,
+            rules: vec![restore_mark.clone()],
+        },
+        Chain {
+            name: CHAIN_MARK_RESTORE_OUTPUT,
+            kind: ChainKind::Route,
+            hook: NF_INET_LOCAL_OUT,
+            priority: NF_IP_PRI_MANGLE,
+            policy: NF_ACCEPT,
+            rules: vec![restore_mark],
+        },
+    ];
+    let mut arp_chains = Vec::new();
+    match policy {
+        TrafficPolicy::Engage {
+            local_network_access,
+            tailscale_bypass,
+            wireguard_bypass,
+            dns,
+            use_system_dns,
+            tunnel_ipv4,
+            tunnel_ipv6,
+        } => {
+            inet_chains.push(tunnel_ingress_chain(tun_name, *tunnel_ipv4, *tunnel_ipv6));
+            inet_chains.push(input_chain(*local_network_access, *tailscale_bypass, *wireguard_bypass));
+            inet_chains.push(kill_switch_chain(
+                *local_network_access,
+                *tailscale_bypass,
+                *wireguard_bypass,
+                dns,
+                *use_system_dns,
+                tun_name,
+            ));
+            arp_chains.push(arp_input_chain(*tunnel_ipv4));
+        }
+        TrafficPolicy::Disengage => {}
+    }
+    vec![
+        Table { family: NFPROTO_INET, chains: inet_chains },
+        Table { family: NFPROTO_ARP, chains: arp_chains },
+    ]
+}
+
+fn tunnel_ingress_chain(tun_name: &str, tunnel_ipv4: Ipv4Addr, tunnel_ipv6: Ipv6Addr) -> Chain {
+    use Expr::*;
+    Chain {
+        name: CHAIN_TUNNEL_INGRESS,
+        kind: ChainKind::Filter,
+        hook: NF_INET_PRE_ROUTING,
+        priority: NF_IP_PRI_CONNTRACK + 1,
+        policy: NF_ACCEPT,
+        rules: vec![
+            vec![MetaLoad(NFT_META_IIFNAME), CmpEq(b"lo\0".to_vec()), Accept],
+            vec![
+                MetaLoad(NFT_META_IIFNAME),
+                CmpEq(nul_terminated(tun_name)),
+                CtLoadDirection,
+                CmpEq(vec![IP_CT_DIR_REPLY]),
+                Accept,
+            ],
+            vec![MetaLoad(NFT_META_IIFNAME), CmpEq(nul_terminated(tun_name)), Drop],
+            addr_rule(AF_INET, IPV4_DADDR_OFFSET, tunnel_ipv4.octets().to_vec(), None, Drop),
+            addr_rule(AF_INET6, IPV6_DADDR_OFFSET, tunnel_ipv6.octets().to_vec(), None, Drop),
+        ],
+    }
+}
+
+fn arp_input_chain(tunnel_ipv4: Ipv4Addr) -> Chain {
+    use Expr::*;
+    Chain {
+        name: CHAIN_ARP_INPUT,
+        kind: ChainKind::Filter,
+        hook: NF_ARP_IN,
+        priority: NF_IP_PRI_FILTER,
+        policy: NF_ACCEPT,
+        rules: vec![vec![
+            Payload { base: NFT_PAYLOAD_NETWORK_HEADER, offset: ARP_OPERATION_OFFSET, len: 2 },
+            CmpEq(ARP_OPERATION_REQUEST.to_be_bytes().to_vec()),
+            Payload { base: NFT_PAYLOAD_NETWORK_HEADER, offset: ARP_TARGET_IP_OFFSET, len: 4 },
+            CmpEq(tunnel_ipv4.octets().to_vec()),
+            Drop,
+        ]],
+    }
+}
+
+fn kill_switch_chain(
+    local_network_access: bool,
+    tailscale_bypass: bool,
+    wireguard_bypass: bool,
+    dns: &[IpAddr],
+    use_system_dns: bool,
+    tun_name: &str,
+) -> Chain {
+    use Expr::*;
+    let mut rules = vec![
+        vec![MetaLoad(NFT_META_OIFNAME), CmpEq(b"lo\0".to_vec()), Accept],
+        vec![MetaLoad(NFT_META_MARK), CmpEq(FWMARK.to_ne_bytes().to_vec()), Accept],
+        vec![MetaLoad(NFT_META_OIFNAME), CmpEq(nul_terminated(tun_name)), Accept],
+        vec![
+            MetaLoad(NFT_META_IIFNAME),
+            CmpEq(nul_terminated(tun_name)),
+            CtLoadDirection,
+            CmpEq(vec![IP_CT_DIR_REPLY]),
+            Accept,
+        ],
+    ];
+    for l4proto in [IPPROTO_ICMP, IPPROTO_ICMPV6] {
+        rules.push(vec![
+            MetaLoad(NFT_META_IIF),
+            CmpEq(LOCALLY_GENERATED_IIF.to_ne_bytes().to_vec()),
+            MetaLoad(NFT_META_L4PROTO),
+            CmpEq(vec![l4proto]),
+            CtLoadState,
+            BitwiseMask(NF_CT_STATE_RELATED_BIT.to_ne_bytes().to_vec()),
+            CmpEq(NF_CT_STATE_RELATED_BIT.to_ne_bytes().to_vec()),
+            Accept,
+        ]);
+    }
+    for ip in dns {
+        rules.push(match ip {
+            IpAddr::V4(ip) => addr_rule(AF_INET, IPV4_DADDR_OFFSET, ip.octets().to_vec(), None, Drop),
+            IpAddr::V6(ip) => addr_rule(AF_INET6, IPV6_DADDR_OFFSET, ip.octets().to_vec(), None, Drop),
+        });
+    }
+    if wireguard_bypass {
+        rules.push(vec![MetaLoad(NFT_META_OIFKIND), CmpEq(b"wireguard\0".to_vec()), Accept]);
+    }
+    if tailscale_bypass {
+        rules.push(vec![MetaLoad(NFT_META_OIFNAME), CmpEq(b"tailscale0\0".to_vec()), Accept]);
+        rules.push(vec![
+            MetaLoad(NFT_META_MARK),
+            BitwiseMask(TAILSCALE_FWMARK_MASK.to_ne_bytes().to_vec()),
+            CmpEq(TAILSCALE_BYPASS_MARK.to_ne_bytes().to_vec()),
+            Accept,
+        ]);
+    }
+    rules.extend([
+        dhcp_rule(
+            AF_INET,
+            Some(AddrMatch { offset: IPV4_DADDR_OFFSET, network: Ipv4Addr::BROADCAST.octets().to_vec(), mask: None }),
+            68,
+            67,
+        ),
+        dhcp_rule(
+            AF_INET6,
+            Some(AddrMatch {
+                offset: IPV6_DADDR_OFFSET,
+                network: Ipv6Addr::new(0xff02, 0, 0, 0, 0, 0, 1, 2).octets().to_vec(),
+                mask: None,
+            }),
+            546,
+            547,
+        ),
+    ]);
+    for nd_type in [ND_ROUTER_SOLICIT, ND_NEIGHBOR_SOLICIT, ND_NEIGHBOR_ADVERT] {
+        rules.push(nd_rule(nd_type, None));
+    }
+    if !use_system_dns {
+        for l4proto in [IPPROTO_UDP, IPPROTO_TCP] {
+            for port in [53u16, 853] {
+                rules.push(vec![
+                    MetaLoad(NFT_META_L4PROTO),
+                    CmpEq(vec![l4proto]),
+                    Payload { base: NFT_PAYLOAD_TRANSPORT_HEADER, offset: 2, len: 2 },
+                    CmpEq(port.to_be_bytes().to_vec()),
+                    Drop,
+                ]);
+            }
+        }
+    }
+    if local_network_access {
+        for net in LAN_V4 {
+            rules.push(addr_rule(
+                AF_INET,
+                IPV4_DADDR_OFFSET,
+                net.network().octets().to_vec(),
+                (net.prefix() < 32).then(|| net.mask().octets().to_vec()),
+                Accept,
+            ));
+        }
+        for net in LAN_V6 {
+            rules.push(addr_rule(
+                AF_INET6,
+                IPV6_DADDR_OFFSET,
+                net.network().octets().to_vec(),
+                (net.prefix() < 128).then(|| net.mask().octets().to_vec()),
+                Accept,
+            ));
+        }
+    }
+    Chain {
+        name: CHAIN_KILL_SWITCH,
+        kind: ChainKind::Filter,
+        hook: NF_INET_POST_ROUTING,
+        priority: NF_IP_PRI_FILTER,
+        policy: NF_DROP,
+        rules,
+    }
+}
+
+fn input_chain(local_network_access: bool, tailscale_bypass: bool, wireguard_bypass: bool) -> Chain {
+    use Expr::*;
+    let mut rules = vec![
+        vec![MetaLoad(NFT_META_IIFNAME), CmpEq(b"lo\0".to_vec()), Accept],
+        vec![MetaLoad(NFT_META_MARK), CmpEq(FWMARK.to_ne_bytes().to_vec()), CtSetMark, Accept],
+        vec![CtLoadDirection, CmpEq(vec![IP_CT_DIR_REPLY]), Accept],
+        dhcp_rule(AF_INET, None, 67, 68),
+        dhcp_rule(AF_INET6, Some(link_local_v6_source()), 547, 546),
+        nd_rule(ND_ROUTER_ADVERT, Some(link_local_v6_source())),
+        nd_rule(ND_REDIRECT, Some(link_local_v6_source())),
+        nd_rule(ND_NEIGHBOR_SOLICIT, None),
+        nd_rule(ND_NEIGHBOR_ADVERT, None),
+    ];
+    if wireguard_bypass {
+        rules.push(vec![MetaLoad(NFT_META_IIFKIND), CmpEq(b"wireguard\0".to_vec()), Accept]);
+    }
+    if tailscale_bypass {
+        rules.push(vec![MetaLoad(NFT_META_IIFNAME), CmpEq(b"tailscale0\0".to_vec()), Accept]);
+    }
+    if local_network_access {
+        for net in LAN_V4 {
+            if net.network().is_multicast() || net.network().is_broadcast() {
+                continue;
+            }
+            rules.push(addr_rule(
+                AF_INET,
+                IPV4_SADDR_OFFSET,
+                net.network().octets().to_vec(),
+                (net.prefix() < 32).then(|| net.mask().octets().to_vec()),
+                Accept,
+            ));
+        }
+        for net in LAN_V6 {
+            if net.network().is_multicast() {
+                continue;
+            }
+            rules.push(addr_rule(
+                AF_INET6,
+                IPV6_SADDR_OFFSET,
+                net.network().octets().to_vec(),
+                (net.prefix() < 128).then(|| net.mask().octets().to_vec()),
+                Accept,
+            ));
+        }
+    }
+    Chain {
+        name: CHAIN_INPUT,
+        kind: ChainKind::Filter,
+        hook: NF_INET_LOCAL_IN,
+        priority: NF_IP_PRI_FILTER,
+        policy: NF_DROP,
+        rules,
+    }
+}
+
+struct AddrMatch {
+    offset: u32,
+    network: Vec<u8>,
+    mask: Option<Vec<u8>>,
+}
+
+fn link_local_v6_source() -> AddrMatch {
+    AddrMatch {
+        offset: IPV6_SADDR_OFFSET,
+        network: LINK_LOCAL_V6.network().octets().to_vec(),
+        mask: Some(LINK_LOCAL_V6.mask().octets().to_vec()),
+    }
+}
+
+fn addr_match_exprs(AddrMatch { offset, network, mask }: AddrMatch) -> Vec<Expr> {
+    use Expr::*;
+    let len = u32::try_from(network.len()).unwrap();
+    let mut exprs = vec![Payload { base: NFT_PAYLOAD_NETWORK_HEADER, offset, len }];
+    if let Some(mask) = mask {
+        exprs.push(BitwiseMask(mask));
+    }
+    exprs.push(CmpEq(network));
+    exprs
+}
+
+fn nd_rule(nd_type: u8, source: Option<AddrMatch>) -> Vec<Expr> {
+    use Expr::*;
+    let mut exprs = vec![MetaLoad(NFT_META_NFPROTO), CmpEq(vec![AF_INET6])];
+    if let Some(source) = source {
+        exprs.extend(addr_match_exprs(source));
+    }
+    exprs.extend([
+        MetaLoad(NFT_META_L4PROTO),
+        CmpEq(vec![IPPROTO_ICMPV6]),
+        Payload { base: NFT_PAYLOAD_TRANSPORT_HEADER, offset: 0, len: 1 },
+        CmpEq(vec![nd_type]),
+        Accept,
+    ]);
+    exprs
+}
+
+fn dhcp_rule(nfproto: u8, addr: Option<AddrMatch>, sport: u16, dport: u16) -> Vec<Expr> {
+    use Expr::*;
+    let mut exprs = vec![
+        MetaLoad(NFT_META_NFPROTO),
+        CmpEq(vec![nfproto]),
+        MetaLoad(NFT_META_L4PROTO),
+        CmpEq(vec![IPPROTO_UDP]),
+    ];
+    if let Some(addr) = addr {
+        exprs.extend(addr_match_exprs(addr));
+    }
+    exprs.extend([
+        Payload { base: NFT_PAYLOAD_TRANSPORT_HEADER, offset: 0, len: 2 },
+        CmpEq(sport.to_be_bytes().to_vec()),
+        Payload { base: NFT_PAYLOAD_TRANSPORT_HEADER, offset: 2, len: 2 },
+        CmpEq(dport.to_be_bytes().to_vec()),
+        Accept,
+    ]);
+    exprs
+}
+
+fn addr_rule(nfproto: u8, offset: u32, network: Vec<u8>, mask: Option<Vec<u8>>, verdict: Expr) -> Vec<Expr> {
+    use Expr::*;
+    let mut exprs = vec![MetaLoad(NFT_META_NFPROTO), CmpEq(vec![nfproto])];
+    exprs.extend(addr_match_exprs(AddrMatch { offset, network, mask }));
+    exprs.push(verdict);
+    exprs
+}
+
+fn nul_terminated(value: &str) -> Vec<u8> {
+    let mut bytes = Vec::with_capacity(value.len() + 1);
+    bytes.extend_from_slice(value.as_bytes());
+    bytes.push(0);
+    bytes
+}
+
+#[derive(Clone)]
+enum Expr {
+    MetaLoad(u32),
+    MetaSetMark,
+    CmpEq(Vec<u8>),
+    CtLoadMark,
+    CtLoadDirection,
+    CtLoadState,
+    CtSetMark,
+    Accept,
+    Drop,
+    Payload { base: u32, offset: u32, len: u32 },
+    BitwiseMask(Vec<u8>),
+}
+
+impl Expr {
+    fn emit(&self, msg: &mut Msg) {
+        match self {
+            Expr::MetaLoad(key) => expr(msg, "meta", |data| {
+                data.attr_u32_be(NFTA_META_KEY, *key);
+                data.attr_u32_be(NFTA_META_DREG, NFT_REG_1);
+            }),
+            Expr::MetaSetMark => expr(msg, "meta", |data| {
+                data.attr_u32_be(NFTA_META_KEY, NFT_META_MARK);
+                data.attr_u32_be(NFTA_META_SREG, NFT_REG_1);
+            }),
+            Expr::CmpEq(value) => expr(msg, "cmp", |data| {
+                data.attr_u32_be(NFTA_CMP_SREG, NFT_REG_1);
+                data.attr_u32_be(NFTA_CMP_OP, NFT_CMP_EQ);
+                data.nested(NFTA_CMP_DATA, |data| data.attr(NFTA_DATA_VALUE, value));
+            }),
+            Expr::CtLoadMark => expr(msg, "ct", |data| {
+                data.attr_u32_be(NFTA_CT_KEY, NFT_CT_MARK);
+                data.attr_u32_be(NFTA_CT_DREG, NFT_REG_1);
+            }),
+            Expr::CtLoadDirection => expr(msg, "ct", |data| {
+                data.attr_u32_be(NFTA_CT_KEY, NFT_CT_DIRECTION);
+                data.attr_u32_be(NFTA_CT_DREG, NFT_REG_1);
+            }),
+            Expr::CtLoadState => expr(msg, "ct", |data| {
+                data.attr_u32_be(NFTA_CT_KEY, NFT_CT_STATE);
+                data.attr_u32_be(NFTA_CT_DREG, NFT_REG_1);
+            }),
+            Expr::CtSetMark => expr(msg, "ct", |data| {
+                data.attr_u32_be(NFTA_CT_KEY, NFT_CT_MARK);
+                data.attr_u32_be(NFTA_CT_SREG, NFT_REG_1);
+            }),
+            Expr::Accept => expr(msg, "immediate", |data| {
+                data.attr_u32_be(NFTA_IMMEDIATE_DREG, NFT_REG_VERDICT);
+                data.nested(NFTA_IMMEDIATE_DATA, |data| {
+                    data.nested(NFTA_DATA_VERDICT, |data| data.attr_u32_be(NFTA_VERDICT_CODE, NF_ACCEPT));
+                });
+            }),
+            Expr::Drop => expr(msg, "immediate", |data| {
+                data.attr_u32_be(NFTA_IMMEDIATE_DREG, NFT_REG_VERDICT);
+                data.nested(NFTA_IMMEDIATE_DATA, |data| {
+                    data.nested(NFTA_DATA_VERDICT, |data| data.attr_u32_be(NFTA_VERDICT_CODE, NF_DROP));
+                });
+            }),
+            Expr::Payload { base, offset, len } => expr(msg, "payload", |data| {
+                data.attr_u32_be(NFTA_PAYLOAD_DREG, NFT_REG_1);
+                data.attr_u32_be(NFTA_PAYLOAD_BASE, *base);
+                data.attr_u32_be(NFTA_PAYLOAD_OFFSET, *offset);
+                data.attr_u32_be(NFTA_PAYLOAD_LEN, *len);
+            }),
+            Expr::BitwiseMask(mask) => expr(msg, "bitwise", |data| {
+                data.attr_u32_be(NFTA_BITWISE_SREG, NFT_REG_1);
+                data.attr_u32_be(NFTA_BITWISE_DREG, NFT_REG_1);
+                data.attr_u32_be(NFTA_BITWISE_LEN, u32::try_from(mask.len()).unwrap());
+                data.nested(NFTA_BITWISE_MASK, |data| data.attr(NFTA_DATA_VALUE, mask));
+                data.nested(NFTA_BITWISE_XOR, |data| data.attr(NFTA_DATA_VALUE, &vec![0u8; mask.len()]));
+            }),
+        }
+    }
+}
+
+fn expr(msg: &mut Msg, name: &str, data: impl FnOnce(&mut Msg)) {
+    msg.nested(NFTA_LIST_ELEM, |elem| {
+        elem.attr_str(NFTA_EXPR_NAME, name);
+        elem.nested(NFTA_EXPR_DATA, data);
+    });
+}
+
+/// One netlink message: nlmsghdr, nfgenmsg, attributes. Length fields are patched in `finish`/`nested`.
+struct Msg {
+    buf: Vec<u8>,
+}
+
+impl Msg {
+    fn new(msg_type: u16, flags: u16, seq: u32, family: u8, res_id: u16) -> Self {
+        let mut buf = Vec::with_capacity(256);
+        buf.extend(0u32.to_ne_bytes());
+        buf.extend(msg_type.to_ne_bytes());
+        buf.extend(flags.to_ne_bytes());
+        buf.extend(seq.to_ne_bytes());
+        buf.extend(0u32.to_ne_bytes());
+        buf.push(family);
+        buf.push(NFNETLINK_V0);
+        buf.extend(res_id.to_be_bytes());
+        Self { buf }
+    }
+
+    fn attr(&mut self, kind: u16, data: &[u8]) {
+        let len = u16::try_from(4 + data.len()).unwrap();
+        self.buf.extend(len.to_ne_bytes());
+        self.buf.extend(kind.to_ne_bytes());
+        self.buf.extend(data);
+        self.pad();
+    }
+
+    fn attr_u32_be(&mut self, kind: u16, value: u32) {
+        self.attr(kind, &value.to_be_bytes());
+    }
+
+    fn attr_str(&mut self, kind: u16, value: &str) {
+        self.attr(kind, &nul_terminated(value));
+    }
+
+    fn nested(&mut self, kind: u16, content: impl FnOnce(&mut Self)) {
+        let start = self.buf.len();
+        self.buf.extend(0u16.to_ne_bytes());
+        self.buf.extend((kind | NLA_F_NESTED).to_ne_bytes());
+        content(self);
+        let len = u16::try_from(self.buf.len() - start).unwrap();
+        self.buf[start..start + 2].copy_from_slice(&len.to_ne_bytes());
+    }
+
+    fn pad(&mut self) {
+        while self.buf.len() % 4 != 0 {
+            self.buf.push(0);
+        }
+    }
+
+    fn finish(mut self) -> Vec<u8> {
+        let len = u32::try_from(self.buf.len()).unwrap();
+        self.buf[0..4].copy_from_slice(&len.to_ne_bytes());
+        self.buf
+    }
+}

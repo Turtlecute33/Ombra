@@ -1,0 +1,933 @@
+use super::{
+    errors::{ApiError, TunnelConnectError},
+    network_config::TunnelNetworkConfig,
+};
+use crate::constants::{DEFAULT_API_BACKUP_DOMAIN, DEFAULT_API_URL, DEFAULT_RELAY_SNI};
+use crate::debug_bundle::service::NetworkInfo;
+use crate::debug_bundle::{debug_info::DebugInfo, dns::DebugTaskDns, http::DebugTaskHttp, task::debug_panic_error, task::run_debug_task};
+use crate::dns::DnsResolver;
+use crate::errors::ConfigDirty;
+use crate::manager::TunnelArgs;
+use crate::network_config::DnsContentBlock;
+use crate::tunnel_state::TargetState;
+use crate::{config::ConfigHandle, net::interface_mtu};
+use crate::{config::PinnedLocation, exit_selection::ExitSelectionState};
+use crate::{config::RotationReason, net::NetworkInterface, network_config::DnsConfig, quicwg::QuicWgConnHandshaking, wg_key_store::WgKeyStore};
+use crate::{config::cached::ConfigCached, exit_selection::ExitSelector};
+use crate::{
+    config::{self, Config, ConfigLoadError, LocalNetworkAccess, TailscaleBypass, WireGuardBypass},
+    errors::RelaySelectionError,
+    quicwg::QuicWgConn,
+};
+use crate::{quicwg::TUNNEL_MTU, relay_selection::race_relay_handshakes};
+use boringtun::x25519::{PublicKey, StaticSecret};
+use obscuravpn_api::cmd::{CacheWgKey, ETagCmd, ExitList, ListExits2};
+use obscuravpn_api::types::{AccountId, AccountInfo, AuthToken, OneExit};
+use obscuravpn_api::{
+    Client, ClientError, Unauthenticated,
+    cmd::{ApiErrorKind, AuthOptional, Cmd, CreateTunnel, ListRelays},
+    types::{ObfuscatedTunnelConfig, OneRelay, TunnelConfig},
+};
+use serde::{Deserialize, Serialize};
+use std::collections::BTreeSet;
+use std::net::SocketAddr;
+use std::sync::{Arc, Weak};
+use std::{cmp::min, path::PathBuf, time::Instant};
+use std::{
+    mem,
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
+use tokio::sync::watch::{Receiver, Sender};
+use tokio::{spawn, time::timeout_at};
+use uuid::Uuid;
+
+impl NetworkInfo {
+    pub fn new(client_state: &ClientStateHandle) -> Self {
+        let state = client_state.borrow();
+        Self {
+            network_interface: state.network_interface.clone(),
+            network_interface_mtu: state.network_interface.as_ref().and_then(|interface| interface_mtu(interface).ok()),
+        }
+    }
+}
+
+// A convenience wrapper to act as message receiver (reevaluate when https://rust-lang.github.io/rfcs//3519-arbitrary-self-types-v2.html is stable)
+#[derive(Clone)]
+pub struct ClientStateHandle(Arc<Sender<ClientState>>);
+
+pub struct ClientState {
+    this: WeakClientStateHandle,
+    cached_api_client: Option<Arc<Client>>,
+    config: ConfigHandle,
+    exit_update_lock: Arc<tokio::sync::Mutex<()>>,
+    mtu: Option<u16>,
+    network_interface: Option<NetworkInterface>,
+    relay_update_lock: Arc<tokio::sync::Mutex<()>>,
+    wg_key_store: WgKeyStore,
+    user_agent: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct AccountStatus {
+    pub account_info: AccountInfo, // API
+    pub last_updated_sec: u64,
+}
+
+impl Eq for AccountStatus {}
+
+impl PartialEq for AccountStatus {
+    fn eq(&self, other: &Self) -> bool {
+        self.last_updated_sec == other.last_updated_sec
+    }
+}
+
+impl ClientState {
+    #[allow(clippy::new_ret_no_self)]
+    pub fn new(
+        config_dir: PathBuf,
+        wg_key_store: WgKeyStore,
+        user_agent: String,
+        force_init_inactive: bool,
+    ) -> Result<ClientStateHandle, ConfigLoadError> {
+        let mut config = ConfigHandle::new(config_dir, &wg_key_store)?;
+        if force_init_inactive {
+            config.change(|config| config.tunnel_active = false)
+        }
+        Ok(ClientStateHandle(Arc::new_cyclic(|weak| {
+            tokio::sync::watch::channel(ClientState {
+                this: WeakClientStateHandle(weak.clone()),
+                config,
+                cached_api_client: None,
+                wg_key_store,
+                mtu: None,
+                network_interface: None,
+                exit_update_lock: Default::default(),
+                relay_update_lock: Default::default(),
+                user_agent,
+            })
+            .0
+        })))
+    }
+
+    pub fn target_state(&self) -> TargetState {
+        TargetState {
+            tunnel_args: self.config.tunnel_active.then_some(self.config.tunnel_args.clone()),
+            network_interface: self.network_interface.clone(),
+            dns_content_block: self.config.dns_content_block,
+            use_system_dns: match self.config.dns {
+                DnsConfig::Default => false,
+                DnsConfig::System => true,
+            },
+            local_network_access: self.config.local_network_access,
+            tailscale_bypass: self.config.tailscale_bypass,
+            wireguard_bypass: self.config.wireguard_bypass,
+        }
+    }
+
+    pub fn config(&self) -> &Config {
+        &self.config
+    }
+
+    pub fn base_url(&self) -> String {
+        self.config.api_url.clone().unwrap_or(DEFAULT_API_URL.to_string())
+    }
+
+    fn make_unauthenticated_api_client(&self) -> Result<Client<Unauthenticated>, ApiError> {
+        let base_url = self.base_url();
+        let network_interface = self.network_interface.clone();
+        let alternative_hosts = vec![self.config.api_host_alternate.clone().unwrap_or_else(|| DEFAULT_API_BACKUP_DOMAIN.into())];
+        tracing::info!(
+            message_id = "By9iMtd5",
+            ?network_interface,
+            ?base_url,
+            ?alternative_hosts,
+            "creating new API client"
+        );
+        Client::new_unauthenticated(
+            base_url,
+            alternative_hosts,
+            &self.user_agent,
+            #[cfg(not(any(target_os = "android", target_os = "linux", target_os = "windows")))]
+            network_interface.as_ref().map(|i| i.name.as_str()),
+            #[cfg(target_os = "linux")]
+            None,
+            #[cfg(target_os = "windows")]
+            network_interface.as_ref().map(|i| i.ip),
+            #[cfg(target_os = "android")]
+            None,
+            #[cfg(target_os = "linux")]
+            Some(crate::net::FWMARK),
+            Some(DnsResolver::new(self.this.clone())),
+        )
+        .map_err(ClientError::from)
+        .map_err(ApiError::from)
+    }
+
+    fn make_api_client(&self, account_id: AccountId) -> Result<Client, ApiError> {
+        self.make_unauthenticated_api_client().map(|client| client.into_authenticated(account_id))
+    }
+}
+
+pub struct TunnelConnection {
+    pub conn: QuicWgConn,
+    pub exit: OneExit,
+    pub network_config: TunnelNetworkConfig,
+    pub relay: OneRelay,
+    pub tunnel_id: Uuid,
+}
+
+impl ClientStateHandle {
+    pub fn borrow(&self) -> tokio::sync::watch::Ref<'_, ClientState> {
+        self.0.borrow()
+    }
+
+    pub fn subscribe(&self) -> Receiver<ClientState> {
+        self.0.subscribe()
+    }
+
+    fn change_config(&self, f: impl FnOnce(&mut Config)) {
+        self.change(|inner| {
+            inner.config.change(|config| {
+                f(config);
+            })
+        });
+    }
+
+    fn change<T>(&self, f: impl FnOnce(&mut ClientState) -> T) -> T {
+        let mut ret: Option<T> = None;
+        self.0.send_modify(|inner| {
+            ret = Some(f(inner));
+        });
+        ret.unwrap()
+    }
+
+    /// Log in or out.
+    pub fn set_account_id(&self, account_id_and_auth_token: Option<(AccountId, Option<AuthToken>)>) -> Result<(), ConfigDirty> {
+        let (account_id, auth_token) = match account_id_and_auth_token {
+            Some((account_id, auth_token)) => (Some(account_id), auth_token),
+            None => (None, None),
+        };
+        self.change(|inner| {
+            inner.config.change(|config| {
+                if account_id != config.account_id {
+                    // Log-out / Change User
+
+                    let mut old_account_ids = mem::take(&mut config.old_account_ids);
+                    if let Some(old_account_id) = &config.account_id
+                        && !old_account_ids.contains(old_account_id)
+                    {
+                        old_account_ids.push(old_account_id.clone());
+                    }
+
+                    *config = Config {
+                        api_url: config.api_url.take(),
+                        account_id,
+                        cached_auth_token: auth_token.map(Into::into),
+                        old_account_ids,
+                        in_new_account_flow: config.in_new_account_flow,
+                        ..Default::default()
+                    }
+                } else {
+                    tracing::warn!(message_id = "shia4Eph", "Setting auth token for logged in account. This isn't expected.");
+                    config.cached_auth_token = auth_token.map(Into::into);
+                }
+            });
+            tracing::info!(message_id = "Aish2eph", "Clearing cached API client: account ID or auth token changed.");
+            inner.cached_api_client = None;
+        });
+        self.borrow().config.check_persisted()
+    }
+
+    pub fn get_cached_exit_list(&self) -> Option<ConfigCached<Arc<ExitList>>> {
+        self.borrow().config.cached_exits.clone()
+    }
+
+    pub fn get_cached_relay_list(&self) -> Option<ConfigCached<Arc<Vec<OneRelay>>>> {
+        self.borrow().config.cached_relays.clone()
+    }
+
+    pub fn set_pinned_exits(&self, pinned_locations: Vec<PinnedLocation>) {
+        self.change_config(|config| {
+            config.pinned_locations = pinned_locations;
+        })
+    }
+
+    pub fn set_feature_flag(&self, flag: &str, active: bool) {
+        self.change_config(|config| {
+            config.feature_flags.set(flag, active);
+        })
+    }
+
+    pub fn set_tunnel_target_state(&self, tunnel_args: Option<TunnelArgs>, active: Option<bool>) {
+        self.change_config(|config| {
+            if let Some(tunnel_args) = tunnel_args {
+                config.tunnel_args = tunnel_args
+            }
+            if let Some(active) = active {
+                config.tunnel_active = active
+            }
+        });
+    }
+
+    pub fn set_api_host_alternate(&self, value: Option<String>) {
+        self.change(|inner| {
+            inner.config.change(|config| {
+                tracing::info!(
+                    message_id = "jee1ieWa",
+                    api_host_alternate_new = value,
+                    api_host_alternate_old = config.api_host_alternate,
+                    "Changing API alternate host.",
+                );
+                config.api_host_alternate = value;
+            });
+            tracing::info!(message_id = "ohj8Eich", "Clearing cached API client: API alternate host changed.");
+            inner.cached_api_client = None;
+        })
+    }
+
+    pub fn set_sni_relay(&self, value: Option<String>) {
+        self.change_config(|config| {
+            tracing::info!(
+                message_id = "OZYPX4xh",
+                sni_relay_new = value,
+                sni_relay_old = config.sni_relay,
+                "Changing Relay SNI.",
+            );
+            config.sni_relay = value;
+        })
+    }
+
+    pub fn set_in_new_account_flow(&self, value: bool) {
+        self.change_config(|config| {
+            config.in_new_account_flow = value;
+        })
+    }
+
+    pub fn set_api_url(&self, url: Option<String>) {
+        self.change(|inner| {
+            inner.config.change(|config| {
+                config.api_url = url;
+                config.wireguard_key_cache.rotate_now(RotationReason::ApiUrlChanged, &inner.wg_key_store);
+            });
+            tracing::info!(message_id = "Eequ6ahz", "Clearing cached API client: API URL changed.");
+            inner.cached_api_client = None;
+        })
+    }
+
+    pub fn set_dns_content_block(&self, value: DnsContentBlock) {
+        self.change_config(move |config| config.dns_content_block = value)
+    }
+
+    pub fn set_network_interface(&self, network_interface: Option<NetworkInterface>) {
+        let mtu = if let Some(interface) = &network_interface {
+            match interface_mtu(interface) {
+                Ok(mtu) => {
+                    tracing::info!(
+                        message_id = "eePai0oh",
+                        network_interface.mtu = mtu,
+                        network_interface.name = interface.name,
+                        "Interface MTU.",
+                    );
+                    Some(mtu)
+                }
+                Err(error) => {
+                    tracing::warn!(
+                        message_id = "kah4Ifoh",
+                        ?error,
+                        network_interface.name = interface.name,
+                        "Failed to get interface MTU.",
+                    );
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
+        self.change(|inner| {
+            inner.mtu = mtu.and_then(|mtu| {
+                u16::try_from(mtu)
+                    .inspect_err(|_| tracing::warn!(message_id = "uKFfXGSc", mtu, "MTU out of range"))
+                    .ok()
+            });
+            if network_interface != inner.network_interface {
+                inner.network_interface = network_interface;
+                tracing::info!(message_id = "iew0Ahk9", "Clearing cached API client: network interface changed.");
+                inner.cached_api_client = None;
+            }
+        })
+    }
+
+    pub fn set_auto_connect(&self, enable: bool) {
+        self.change_config(|config| {
+            config.auto_connect = enable;
+        })
+    }
+
+    pub fn set_use_system_dns(&self, enable: bool) {
+        self.change_config(|config| config.dns = if enable { DnsConfig::System } else { DnsConfig::Default })
+    }
+
+    pub fn set_local_network_access(&self, enable: bool) {
+        self.change_config(|config| {
+            config.local_network_access = if enable {
+                LocalNetworkAccess::Enabled
+            } else {
+                LocalNetworkAccess::Disabled
+            }
+        })
+    }
+
+    pub fn set_tailscale_bypass(&self, enable: bool) {
+        self.change_config(|config| config.tailscale_bypass = if enable { TailscaleBypass::Enabled } else { TailscaleBypass::Disabled })
+    }
+
+    pub fn set_wireguard_bypass(&self, enable: bool) {
+        self.change_config(|config| config.wireguard_bypass = if enable { WireGuardBypass::Enabled } else { WireGuardBypass::Disabled })
+    }
+
+    pub async fn connect(
+        &self,
+        exit_selector: &ExitSelector,
+        network_interface: Option<&NetworkInterface>,
+        selection_state: &mut ExitSelectionState,
+    ) -> Result<TunnelConnection, TunnelConnectError> {
+        let (tunnel_id, tunnel_config, wg_sk, exit, relay, handshaking) = self.new_tunnel(exit_selector, network_interface, selection_state).await?;
+        let network_config = TunnelNetworkConfig::new(&tunnel_config, TUNNEL_MTU)?;
+        let client_ip_v4 = network_config.ipv4;
+        tracing::info!(
+            message_id = "AtKb082I",
+            tunnel.id =% tunnel_id,
+            exit.public_key =? tunnel_config.exit_pubkey,
+            "finishing tunnel connection");
+        let remote_pk = PublicKey::from(tunnel_config.exit_pubkey.0);
+        let ping_keepalive_ip = tunnel_config.gateway_ip_v4;
+        let conn = QuicWgConn::connect(handshaking, wg_sk.clone(), remote_pk, client_ip_v4, ping_keepalive_ip, tunnel_id).await?;
+        tracing::info!(message_id = "A2FDGY4A", tunnel.id =% tunnel_id, "tunnel connected");
+        let exit_id = exit.id.clone();
+
+        self.change_config(|config| {
+            if *exit_selector != (ExitSelector::Any {}) {
+                config.last_chosen_exit = Some(exit_id);
+                config.last_chosen_exit_selector = exit_selector.clone();
+            };
+            config.last_exit_selector = exit_selector.clone();
+        });
+        Ok(TunnelConnection { conn, exit, network_config, relay, tunnel_id })
+    }
+
+    async fn new_tunnel(
+        &self,
+        exit_selector: &ExitSelector,
+        network_interface: Option<&NetworkInterface>,
+        selection_state: &mut ExitSelectionState,
+    ) -> anyhow::Result<(Uuid, ObfuscatedTunnelConfig, StaticSecret, OneExit, OneRelay, QuicWgConnHandshaking), TunnelConnectError> {
+        let this = self.clone();
+        let exit_update = tokio::spawn(async move {
+            let r = this.maybe_update_exits(Duration::from_secs(60)).await;
+            if let Err(error) = &r {
+                tracing::warn!(message_id = "oH5aigha", ?error, "Failed to update exit list: {}", error);
+            }
+            r
+        });
+
+        let (closest_relay, handshaking) = self.select_relay(network_interface).await?;
+
+        let exit_list = if let Some(l) = self.get_cached_exit_list() {
+            l
+        } else {
+            exit_update.await.unwrap().map_err(TunnelConnectError::ApiError)?
+        };
+
+        let exit = selection_state
+            .select_next_exit(exit_selector, &exit_list.value.exits, &closest_relay)
+            .map(|e| e.id.clone());
+        let Some(exit) = exit else {
+            tracing::error!(
+                message_id = "naiThei6",
+                exit_selector =? exit_selector,
+                "No exits matching selector."
+            );
+            return Err(TunnelConnectError::NoExit);
+        };
+
+        tracing::info!(
+            message_id = "eiR8ixoh",
+            exit.id = exit,
+            exit_selector =? exit_selector,
+            "Selected exit"
+        );
+
+        let tunnel_id = Uuid::new_v4();
+        let (wg_private_key, wg_public_key) =
+            self.change(|inner| inner.config.change(|config| config.wireguard_key_cache.use_key_pair(&inner.wg_key_store)));
+        tracing::info!(
+            message_id = "Ahv4Eequ",
+            client.pubkey =% wg_public_key,
+            exit.id = exit,
+            relay.id = closest_relay.id,
+            relay.ip_v4 =% closest_relay.ip_v4,
+            tunnel.id =% tunnel_id,
+            "creating tunnel",
+        );
+
+        let cmd = CreateTunnel::Obfuscated {
+            id: Some(tunnel_id),
+            label: None,
+            wg_pubkey: wg_public_key,
+            relay: Some(closest_relay.id.clone()),
+            exit: Some(exit.clone()),
+        };
+        let tunnel = match self.api_request(cmd).await {
+            Ok(t) => t,
+            Err(error) => match error.api_error_kind() {
+                Some(ApiErrorKind::WgKeyRotationRequired {}) => {
+                    tracing::warn!(
+                        message_id = "1Dittpzj",
+                        ?error,
+                        "server indicated that key rotation is required immediately"
+                    );
+                    self.change(|inner| {
+                        inner
+                            .config
+                            .change(|config| config.wireguard_key_cache.rotate_now(RotationReason::ApiRequested, &inner.wg_key_store))
+                    });
+
+                    // Let the main maintenance loop handle retries.
+                    return Err(error.into());
+                }
+                _ => return Err(error.into()),
+            },
+        };
+
+        if tunnel.relay.id != closest_relay.id {
+            return Err(TunnelConnectError::UnexpectedRelay);
+        }
+        let TunnelConfig::Obfuscated(config) = tunnel.config else {
+            return Err(TunnelConnectError::UnexpectedTunnelKind);
+        };
+        Ok((tunnel_id, config, wg_private_key, tunnel.exit, tunnel.relay, handshaking))
+    }
+
+    pub async fn select_relay(&self, network_interface: Option<&NetworkInterface>) -> Result<(OneRelay, QuicWgConnHandshaking), TunnelConnectError> {
+        let this = self.clone();
+        let relay_update = tokio::spawn(async move {
+            let r = this.maybe_update_relays(Duration::from_secs(60)).await;
+            if let Err(error) = &r {
+                tracing::warn!(message_id = "J8LVTgQm", ?error, "Failed to update relay list: {}", error,);
+            }
+            r
+        });
+        let relays = if let Some(l) = self.get_cached_relay_list() {
+            l
+        } else {
+            relay_update.await.unwrap()?
+        };
+
+        let sni = self.0.borrow().config.sni_relay.clone().unwrap_or_else(|| DEFAULT_RELAY_SNI.into());
+
+        tracing::info!(
+            message_id = "eech6Ier",
+            relays.staleness_s =? relays.staleness().as_secs_f32(),
+            relays.version =? relays.version(),
+            sni = sni,
+            "Racing relays",
+        );
+        let (use_tcp_tls, quic_frame_padding, force_small_mtu, mtu) = {
+            let this = self.borrow();
+            (
+                this.config.feature_flags.tcp_tls_tunnel.unwrap_or(false),
+                this.config.feature_flags.quic_frame_padding.unwrap_or(false),
+                this.config.feature_flags.force_small_mtu.unwrap_or(false),
+                this.mtu,
+            )
+        };
+        let mut racing_handshakes = race_relay_handshakes(
+            network_interface,
+            &relays.value,
+            sni,
+            use_tcp_tls,
+            quic_frame_padding,
+            force_small_mtu,
+            mtu,
+        )?;
+
+        let start = Instant::now();
+        let mut deadline = start + Duration::from_secs(30);
+
+        let mut relays_connected_successfully = BTreeSet::new();
+        let mut best_candidate = None;
+
+        loop {
+            let next = timeout_at(deadline.into(), racing_handshakes.next()).await;
+            let (relay, port, rtt, handshaking) = match next {
+                Ok(Some(n)) => n,
+                Ok(None) => {
+                    tracing::info!(message_id = "aeY9Acha", "all relay handshake attempts finished",);
+                    break;
+                }
+                Err(error) => {
+                    tracing::info!(
+                        message_id = "Eixooph8",
+                        ?error,
+                        deadline_s = (deadline - start).as_secs_f32(),
+                        "relay selection deadline reached",
+                    );
+                    break;
+                }
+            };
+            relays_connected_successfully.insert(relay.id.clone());
+
+            let rejected = if best_candidate.as_ref().is_some_and(|(_, _, best_rtt, _)| *best_rtt < rtt) {
+                Some(handshaking)
+            } else {
+                // Only wait for 3x the time it took to find the best candidate. The chance that future relays have better RTT is minimal and it wastes time and increases the chance that we hang for a long time waiting on unreachable relays.
+                deadline = start + min(start.elapsed() * 3, Duration::from_secs(5));
+
+                best_candidate
+                    .replace((relay, port, rtt, handshaking))
+                    .map(|(_, _, _, replaced)| replaced)
+            };
+            if let Some(rejected) = rejected {
+                spawn(rejected.abandon());
+            }
+
+            if relays_connected_successfully.len() >= 5 {
+                // With the 5 unique relays we have a high probability of having a very good candidate. Waiting for more responses just slows down connection for very minimal benefit.
+                tracing::info!(message_id = "YeiNgo7k", "relay count limit reached",);
+                break;
+            }
+        }
+        let Some((relay, port, rtt, handshaking)) = best_candidate else {
+            racing_handshakes.abandon().await;
+            return Err(RelaySelectionError::NoSuccess.into());
+        };
+        spawn(racing_handshakes.abandon());
+        tracing::info!(message_id = "Xdbn2PYb", relay.id, port, rtt_ms = rtt.as_millis(), "selected relay");
+        Ok((relay, handshaking))
+    }
+
+    pub fn make_unauthenticated_api_client(&self) -> Result<Client<Unauthenticated>, ApiError> {
+        self.borrow().make_unauthenticated_api_client()
+    }
+
+    pub fn make_api_client(&self, account_id: AccountId) -> Result<Client, ApiError> {
+        self.borrow().make_api_client(account_id)
+    }
+
+    fn api_client(&self) -> Result<Arc<Client>, ApiError> {
+        let Some(account_id) = self.borrow().config.account_id.clone() else {
+            return Err(ApiError::NotLoggedIn);
+        };
+
+        self.change(|inner| {
+            if let Some(api_client) = inner.cached_api_client.clone() {
+                Ok(api_client)
+            } else {
+                let api_client = Arc::new(inner.make_api_client(account_id)?);
+                if let Some(auth_token) = inner.config.cached_auth_token.clone() {
+                    api_client.set_auth_token(Some(auth_token.into()));
+                }
+                Ok(inner.cached_api_client.insert(api_client).clone())
+            }
+        })
+    }
+
+    fn cache_auth_token(&self, api_client: &Client) {
+        let auth_token = api_client.get_auth_token();
+        self.change(|inner| {
+            inner.config.change(|config| {
+                config.cached_auth_token = auth_token.map(Into::into);
+            });
+        })
+    }
+
+    pub async fn api_request<C: Cmd>(&self, cmd: C) -> Result<C::Output, ApiError> {
+        let api_client = self.api_client()?;
+        let result = api_client.run(cmd).await;
+        self.cache_auth_token(&api_client);
+        Ok(result?)
+    }
+
+    pub async fn api_request_without_auth<C: Cmd<Auth = AuthOptional>>(&self, cmd: C) -> Result<C::Output, ApiError> {
+        let api_client = self.make_unauthenticated_api_client()?;
+        Ok(api_client.run(cmd).await?)
+    }
+
+    pub async fn cached_api_request<C: ETagCmd>(&self, cmd: C, etag: Option<&[u8]>) -> Result<obscuravpn_api::Response<C::Output>, ApiError> {
+        let api_client = self.api_client()?;
+        let result = api_client.run_with_etag(cmd, etag).await;
+        self.cache_auth_token(&api_client);
+        Ok(result?)
+    }
+
+    pub fn base_url(&self) -> String {
+        self.borrow().base_url()
+    }
+
+    pub fn user_agent(&self) -> String {
+        self.borrow().user_agent.clone()
+    }
+
+    pub async fn maybe_update_exits(&self, freshness: Duration) -> Result<ConfigCached<Arc<ExitList>>, ApiError> {
+        let exit_update_lock = self.borrow().exit_update_lock.clone();
+        let _exit_update_guard = exit_update_lock.lock().await;
+
+        let prev = self.borrow().config.cached_exits.clone();
+        if let Some(list) = &prev
+            && list.staleness() < freshness
+        {
+            tracing::info!(
+                message_id = "Io3jai7l",
+                exits.staleness_s =? list.staleness().as_secs_f32(),
+                exits.version =? list.version(),
+                "Exit list fresh.",
+            );
+            return Ok(prev.unwrap());
+        }
+
+        let res = self.cached_api_request(ListExits2 {}, prev.as_ref().and_then(|p| p.etag())).await?;
+
+        let etag = res.etag().map(|e| e.to_vec());
+
+        let Some(body) = res.into_body() else {
+            let Some(prev) = prev else {
+                return Err(ClientError::Other(anyhow::anyhow!("got response without body despite sending no etag")).into());
+            };
+            tracing::info!(
+                message_id = "dd1oXUQV",
+                exits.staleness_s = prev.staleness().as_secs_f32(),
+                exits.version =? prev.version(),
+                "Exit list etag matches"
+            );
+            let cached_exits = prev.revalidated(etag);
+            self.change_config(|config| config.cached_exits = Some(cached_exits.clone()));
+            return Ok(cached_exits);
+        };
+
+        let version = match etag {
+            Some(b) => config::cached::Version::ETag(b),
+            None => {
+                tracing::warn!(message_id = "meequa8P", "Exit list had no ETag.");
+                config::cached::Version::artificial()
+            }
+        };
+        let cached_exits = ConfigCached::new(Arc::new(body), version);
+        tracing::info!(
+            message_id = "hvrg8jRW",
+            exits.count = cached_exits.value.exits.len(),
+            version_old =? prev.as_ref().map(|p| p.version()),
+            version_new =? cached_exits.version(),
+            staleness_s =? prev.as_ref().map(|p| p.staleness().as_secs_f32()),
+            "Exit list updated."
+        );
+        self.change_config(|config| config.cached_exits = Some(cached_exits.clone()));
+        Ok(cached_exits)
+    }
+
+    pub async fn maybe_update_relays(&self, freshness: Duration) -> Result<ConfigCached<Arc<Vec<OneRelay>>>, ApiError> {
+        let relay_update_lock = self.borrow().relay_update_lock.clone();
+        let _relay_update_guard = relay_update_lock.lock().await;
+
+        let prev = self.borrow().config.cached_relays.clone();
+        if let Some(list) = &prev
+            && list.staleness() < freshness
+        {
+            tracing::info!(
+                message_id = "07da0OEW",
+                relays.staleness_s = list.staleness().as_secs_f32(),
+                relays.version =? list.version(),
+                "Relay list fresh.",
+            );
+            return Ok(prev.unwrap());
+        }
+
+        let res = self.cached_api_request(ListRelays {}, prev.as_ref().and_then(|p| p.etag())).await?;
+
+        let etag = res.etag().map(|e| e.to_vec());
+
+        let Some(body) = res.into_body() else {
+            let Some(prev) = prev else {
+                return Err(ClientError::Other(anyhow::anyhow!("got response without body despite sending no etag")).into());
+            };
+            tracing::info!(
+                message_id = "g7cbIVp2",
+                relays.staleness_s = prev.staleness().as_secs_f32(),
+                relays.version =? prev.version(),
+                "Relay list etag matches"
+            );
+            let cached_relays = prev.revalidated(etag);
+            self.change_config(|config| config.cached_relays = Some(cached_relays.clone()));
+            return Ok(cached_relays);
+        };
+
+        let version = match etag {
+            Some(b) => config::cached::Version::ETag(b),
+            None => {
+                tracing::warn!(message_id = "C0DRoScG", "Relay list had no ETag.");
+                config::cached::Version::artificial()
+            }
+        };
+        let cached_relays = ConfigCached::new(Arc::new(body), version);
+        tracing::info!(
+            message_id = "cAS1rZLA",
+            relays.count = cached_relays.value.len(),
+            version_old =? prev.as_ref().map(|p| p.version()),
+            version_new =? cached_relays.version(),
+            staleness_s =? prev.as_ref().map(|p| p.staleness().as_secs_f32()),
+            "Relay list updated."
+        );
+        self.change_config(|config| config.cached_relays = Some(cached_relays.clone()));
+
+        Ok(cached_relays)
+    }
+
+    pub fn update_account_info(&self, account_info: &AccountInfo) {
+        let response_time = SystemTime::now();
+        let last_updated_sec = response_time.duration_since(UNIX_EPOCH).unwrap_or(Duration::ZERO).as_secs();
+        let account = Some(AccountStatus { account_info: account_info.clone(), last_updated_sec });
+        self.change_config(|config| config.cached_account_status = account);
+    }
+
+    // Only intended to be called after use (on disconnect). Rotation schedules are fairly arbitrary, so using the key one more time is fine. The benefit is that we don't trigger rotation if the user stops using the client, but the client is still auto-starting. This does not imply the effect of `Self::register_cached_wireguard_key_if_new`. It's the callers responsibility to ensure that registration is triggered asap.
+    pub fn rotate_wireguard_key_if_required(&self) {
+        self.change(|inner| {
+            inner.config.change(|config| {
+                config.wireguard_key_cache.rotate_if_required(&inner.wg_key_store);
+            })
+        })
+    }
+
+    // Registers the current wireguard key via the API server if it has not been registered yet. Because this function is a NOOP after first successful use (until key rotation), it may be called frequently. Most importantly it should be called after disconnecting (due to possible key rotation) and after observing that the user paid.
+    pub async fn register_cached_wireguard_key_if_new(&self) -> Result<(), ApiError> {
+        let key_pair = self.change(|inner| {
+            inner
+                .config
+                .change(|config| config.wireguard_key_cache.need_registration(&inner.wg_key_store))
+        });
+        let Some((current_public_key, old_public_keys)) = key_pair else {
+            tracing::info!(message_id = "DLRFU37X", "public wireguard key already registered");
+            return Ok(());
+        };
+        let cmd = CacheWgKey { public_key: current_public_key, previous_public_keys: old_public_keys.clone() };
+        match self.api_request(cmd).await {
+            Ok(()) => {
+                self.change_config(|config| config.wireguard_key_cache.registered(current_public_key, &old_public_keys));
+                tracing::info!(message_id = "OsG3QuGx", "successfully registered public wireguard key");
+                Ok(())
+            }
+            Err(error) => {
+                if matches!(error.api_error_kind(), Some(ApiErrorKind::WgKeyRotationRequired {})) {
+                    tracing::warn!(
+                        message_id = "n89x3fJF",
+                        ?error,
+                        "server indicated that key rotation is required immediately"
+                    );
+                    self.change(|inner| {
+                        inner.config.change(|config| {
+                            config.wireguard_key_cache.rotate_now(RotationReason::ApiRequested, &inner.wg_key_store);
+                        })
+                    })
+                }
+                Err(error)
+            }
+        }
+    }
+
+    pub fn rotate_wg_key(&self) {
+        self.change(|inner| {
+            inner.config.change(|config| {
+                config.wireguard_key_cache.rotate_now(RotationReason::Manual, &inner.wg_key_store);
+            })
+        })
+    }
+
+    pub async fn get_debug_info(&self) -> DebugInfo {
+        let config;
+        let network_interface;
+        let network_interface_mtu;
+        {
+            let this = self.borrow();
+            config = this.config().clone().into();
+            network_interface = this.network_interface.clone();
+            network_interface_mtu = this.network_interface.as_ref().and_then(|interface| interface_mtu(interface).ok());
+        }
+
+        let dns_apple = tokio::spawn(run_debug_task(DebugTaskDns::run("www.apple.com")));
+        let dns_google = tokio::spawn(run_debug_task(DebugTaskDns::run("google.com")));
+        let dns_obscura = tokio::spawn(run_debug_task(DebugTaskDns::run("v1.api.prod.obscura.net")));
+
+        let dns_apple = dns_apple.await.unwrap_or_else(debug_panic_error);
+        let dns_google = dns_google.await.unwrap_or_else(debug_panic_error);
+        let dns_obscura = dns_obscura.await.unwrap_or_else(debug_panic_error);
+
+        let http_apple = tokio::spawn(run_debug_task(DebugTaskHttp::run(
+            "https://www.apple.com/robots.txt",
+            Some(dns_apple.result.get().map(|dns| dns.addrs.clone()).unwrap_or_default()),
+            true,
+            None,
+        )));
+        let http_google = tokio::spawn(run_debug_task(DebugTaskHttp::run(
+            "https://google.com/robots.txt",
+            Some(dns_google.result.get().map(|dns| dns.addrs.clone()).unwrap_or_default()),
+            true,
+            None,
+        )));
+
+        let http_nosni = tokio::spawn(run_debug_task(DebugTaskHttp::run(
+            "https://v1.api.prod.obscura.net/api/ping",
+            Some(dns_obscura.result.get().map(|dns| dns.addrs.clone()).unwrap_or_default()),
+            false,
+            None,
+        )));
+
+        let http_obscura = tokio::spawn(run_debug_task(DebugTaskHttp::run(
+            "https://v1.api.prod.obscura.net/api/ping",
+            Some(dns_obscura.result.get().map(|dns| dns.addrs.clone()).unwrap_or_default()),
+            true,
+            None,
+        )));
+        let http_obscura_apple = tokio::spawn(run_debug_task(DebugTaskHttp::run(
+            "https://apple.com/api/ping",
+            Some(dns_obscura.result.get().map(|dns| dns.addrs.clone()).unwrap_or_default()),
+            true,
+            None,
+        )));
+        let http_obscura_google = tokio::spawn(run_debug_task(DebugTaskHttp::run(
+            "https://google.com/api/ping",
+            Some(dns_obscura.result.get().map(|dns| dns.addrs.clone()).unwrap_or_default()),
+            true,
+            None,
+        )));
+
+        DebugInfo {
+            config,
+            dns_apple,
+            dns_google,
+            dns_obscura,
+            http_apple: http_apple.await.unwrap_or_else(debug_panic_error),
+            http_google: http_google.await.unwrap_or_else(debug_panic_error),
+            http_nosni: http_nosni.await.unwrap_or_else(debug_panic_error),
+            http_obscura: http_obscura.await.unwrap_or_else(debug_panic_error),
+            http_obscura_apple: http_obscura_apple.await.unwrap_or_else(debug_panic_error),
+            http_obscura_google: http_obscura_google.await.unwrap_or_else(debug_panic_error),
+            network_interface,
+            network_interface_mtu,
+        }
+    }
+
+    pub fn update_dns_cache(&self, name: &str, addrs: &[SocketAddr]) {
+        self.change_config(|config| {
+            config.dns_cache.set(name, addrs);
+        })
+    }
+}
+
+#[derive(Clone)]
+pub struct WeakClientStateHandle(Weak<Sender<ClientState>>);
+
+impl WeakClientStateHandle {
+    pub fn upgrade(&self) -> Option<ClientStateHandle> {
+        self.0.upgrade().map(ClientStateHandle)
+    }
+}

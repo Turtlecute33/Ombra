@@ -1,0 +1,187 @@
+use std::fmt::Formatter;
+use std::io;
+use std::time::Instant;
+
+use obscuravpn_api::{ClientError, cmd::ApiErrorKind};
+use serde::{Deserialize, Serialize};
+use strum::IntoStaticStr;
+use thiserror::Error;
+
+use crate::config::ConfigSaveError;
+use crate::quicwg::QuicWgConnectError;
+
+use crate::network_config::NetworkConfigError;
+
+/// High-level connection error codes, which are actionable for frontends.
+/// Actionable means any of:
+/// - Useful to trigger specific frontend behavior (e.g. control flow branches)
+/// - Correlates with specific error messages shown to users
+///
+/// All remaining errors are mapped to the `Other` variant.
+/// Make sure `obscura-ui/src/translations/en.json` contains an entry for each variant.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, IntoStaticStr, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+#[strum(serialize_all = "camelCase")]
+pub enum ConnectErrorCode {
+    AccountExpired,
+    ApiError,
+    ApiRateLimitExceeded,
+    ApiUnreachable,
+    InvalidAccountId,
+    NoInternet,
+    NoLongerSupported,
+    NoRelay,
+    NoSlotsLeft,
+    NotLoggedIn,
+    Other,
+}
+
+impl ConnectErrorCode {
+    pub fn as_static_str(&self) -> &'static str {
+        self.into()
+    }
+}
+
+impl From<&TunnelConnectError> for ConnectErrorCode {
+    fn from(err: &TunnelConnectError) -> Self {
+        use ApiErrorKind::*;
+        tracing::info!(message_id = "qwt58GUq", "deriving connect error code for {}", err);
+        match err {
+            TunnelConnectError::ApiError(err) => match err {
+                ApiError::NotLoggedIn => Self::NotLoggedIn,
+                ApiError::ApiClient(err) => match err {
+                    ClientError::ApiError(err) => match err.body.error {
+                        AccountExpired {} => Self::AccountExpired,
+                        InvalidAccountId {} => Self::InvalidAccountId,
+                        NoLongerSupported {} => Self::NoLongerSupported,
+                        TunnelLimitExceeded {} => Self::NoSlotsLeft,
+                        RateLimitExceeded { pow_challenge: _ } => Self::ApiRateLimitExceeded,
+                        AllFriendCodesClaimed {}
+                        | AlreadyReferred {}
+                        | AssociateAccountConflict {}
+                        | BadRequest {}
+                        | IneligibleForReferral {}
+                        | InternalError {}
+                        | InvalidReferralCode {}
+                        | LightningTopUpNotFound {}
+                        | MiscUnauthorized {}
+                        | MissingOrInvalidAuthToken {}
+                        | MoneroTopUpNotFound {}
+                        | NoApiRoute {}
+                        | NoMatchingExit {}
+                        | NnnAlreadySubmitted {}
+                        | NnnShareNotFound {}
+                        | NnnSubmissionsClosed {}
+                        | NnnUnavailable {}
+                        | PayloadTooLarge {}
+                        | SaleNotFound {}
+                        | SignupLimitExceeded { pow_challenge: _ }
+                        | WgKeyRotationRequired {}
+                        | Unknown(_) => Self::ApiError,
+                    },
+                    ClientError::ProofOfWork(_) | ClientError::ProofOfWorkTimeout => Self::ApiRateLimitExceeded,
+                    ClientError::RequestExecError(_) => Self::ApiUnreachable,
+                    ClientError::ResponseTooLarge | ClientError::InvalidHeaderValue | ClientError::Other(_) | ClientError::ProtocolError(_) => {
+                        Self::Other
+                    }
+                },
+            },
+            TunnelConnectError::NoInternet => Self::NoInternet,
+            TunnelConnectError::RelaySelection(RelaySelectionError::NoSuccess) => Self::NoRelay,
+            TunnelConnectError::NetworkConfig(_)
+            | TunnelConnectError::NoExit
+            | TunnelConnectError::SetOsNetworkConfig
+            | TunnelConnectError::TunnelConnect(_)
+            | TunnelConnectError::InvalidTunnelId
+            | TunnelConnectError::UnexpectedRelay
+            | TunnelConnectError::UnexpectedTunnelKind
+            | TunnelConnectError::UnexpectedInternalTunnelLifecycleState
+            | TunnelConnectError::RelaySelection(_)
+            | TunnelConnectError::ConfigSave(_) => Self::Other,
+        }
+    }
+}
+
+#[derive(Debug, Error)]
+pub enum TunnelConnectError {
+    #[error("tunnel creation: {0}")]
+    ApiError(#[from] ApiError),
+    #[error("failed to save config file")]
+    ConfigSave(#[from] ConfigSaveError),
+    #[error("api returned invalid tunnel id")]
+    InvalidTunnelId,
+    #[error("could not construct network config: {0}")]
+    NetworkConfig(#[from] NetworkConfigError),
+    #[error("No matching exit.")]
+    NoExit,
+    #[error("No internet.")]
+    NoInternet,
+    #[error("relay selection failed: {0}")]
+    RelaySelection(#[from] RelaySelectionError),
+    #[error("failed to set os network config")]
+    SetOsNetworkConfig,
+    #[error("tunnel connect: {0}")]
+    TunnelConnect(#[from] QuicWgConnectError),
+    #[error("tunnel is in unexpected internal lifecycle state")]
+    UnexpectedInternalTunnelLifecycleState,
+    #[error("api returned unexpected relay")]
+    UnexpectedRelay,
+    #[error("api returned unexpected tunnel kind")]
+    UnexpectedTunnelKind,
+}
+
+#[derive(Debug, Error)]
+pub enum ApiError {
+    #[error(transparent)]
+    ApiClient(#[from] ClientError),
+    #[error("not logged in")]
+    NotLoggedIn,
+}
+
+#[derive(Debug, Error)]
+pub enum ConfigDirtyOrApiError {
+    #[error(transparent)]
+    ApiError(#[from] ApiError),
+    #[error(transparent)]
+    ConfigDirty(#[from] ConfigDirty),
+}
+
+#[derive(Debug, Error)]
+pub struct ConfigDirty;
+
+impl std::fmt::Display for ConfigDirty {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "config not saved to file")
+    }
+}
+
+impl ApiError {
+    pub fn api_error_kind(&self) -> Option<&obscuravpn_api::cmd::ApiErrorKind> {
+        if let Self::ApiClient(ClientError::ApiError(error)) = self {
+            return Some(&error.body.error);
+        }
+        None
+    }
+}
+
+#[derive(Debug, Error)]
+pub enum RelaySelectionError {
+    #[error("all relay connections failed")]
+    NoSuccess,
+    #[error("quic setup: {0}")]
+    QuicSetup(anyhow::Error),
+    #[error("udp socket setup: {0}")]
+    UdpSetup(io::Error),
+}
+
+#[derive(Debug, Error)]
+pub struct ErrorAt<T: std::error::Error> {
+    pub error: T,
+    pub at: Instant,
+}
+
+impl<T: std::error::Error> From<T> for ErrorAt<T> {
+    fn from(error: T) -> Self {
+        Self { error, at: Instant::now() }
+    }
+}

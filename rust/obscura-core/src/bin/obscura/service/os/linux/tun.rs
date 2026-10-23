@@ -1,0 +1,170 @@
+use bytes::Bytes;
+use ipnetwork::Ipv6Network;
+use obscuravpn_client::config::{LocalNetworkAccess, TailscaleBypass, WireGuardBypass};
+use obscuravpn_client::net::NetworkInterface;
+use obscuravpn_client::network_config::{DnsContentBlock, OsNetworkConfig};
+use obscuravpn_client::os::packet_buffer::PacketBuffer;
+use obscuravpn_client::positive_u31::PositiveU31;
+use obscuravpn_client::rate_limited_log;
+use std::io::ErrorKind::{AddrNotAvailable, AlreadyExists, WouldBlock};
+use std::net::{IpAddr, Ipv4Addr};
+use std::sync::{Arc, Mutex};
+
+use obscuravpn_client::quicwg::QuicWgConnPacketSender;
+use obscuravpn_client::tokio::AbortOnDrop;
+use std::time::Duration;
+
+const TUN_MIN_LOG_SILENCE: Duration = Duration::from_secs(5);
+const TUN_NAME: &str = "obscuravpn";
+
+pub struct Tun {
+    dev: Arc<tun_rs::AsyncDevice>,
+    interface_index: PositiveU31,
+    read_task: Mutex<Option<AbortOnDrop>>,
+}
+
+impl Tun {
+    pub fn create() -> Result<Self, ()> {
+        tracing::info!(message_id = "6JEntSBS", name = TUN_NAME, "creating tun device");
+        let dev = tun_rs::DeviceBuilder::new()
+            .name(TUN_NAME.to_string())
+            .enable(false)
+            .build_async()
+            .map_err(|error| {
+                tracing::error!(message_id = "lNB6HpcA", ?error, name = TUN_NAME, "failed to create tun device");
+            })?;
+        let raw_interface_index = dev.if_index().map_err(|error| {
+            tracing::error!(message_id = "W7SQqz3F", ?error, "failed to get interface index of new tun device");
+        })?;
+        let interface_index = raw_interface_index.try_into().map_err(|error| {
+            tracing::error!(
+                message_id = "DPsyfMWl",
+                ?error,
+                raw_interface_index,
+                "interface index of new tun device is out of range"
+            );
+        })?;
+        let tun = Self { dev: Arc::new(dev), interface_index, read_task: Mutex::new(None) };
+        // NetworkManager classifies new TUN devices without assigned IPs as `NM_DEVICE_STATE_UNMANAGED` instead of just externally connected and refuses all device configuration interactions. As initial state this is harmless in tested versions, but avoiding the state is simpler and may be safer.
+        tun.set_dummy_config()?;
+        tun.dev.enabled(true).map_err(|error| {
+            tracing::error!(message_id = "O2sZ95mQ", ?error, "failed to bring up new tun device");
+        })?;
+        tracing::info!(message_id = "qvZBRbWp", interface_index = raw_interface_index, "tun device ready");
+        Ok(tun)
+    }
+
+    pub fn interface(&self) -> NetworkInterface {
+        NetworkInterface { name: TUN_NAME.to_string(), index: self.interface_index }
+    }
+
+    pub fn send(&self, packet: Bytes) {
+        if let Err(error) = self.dev.try_send(&packet)
+            && error.kind() != WouldBlock
+        {
+            rate_limited_log!(
+                TUN_MIN_LOG_SILENCE,
+                tracing::error!(message_id = "4nG6rvr3", ?error, "failed to send packet on tun device")
+            );
+        }
+    }
+
+    async fn receive(dev: &tun_rs::AsyncDevice, packet_buffer: &mut PacketBuffer) {
+        if let Err(error) = dev.readable().await {
+            rate_limited_log!(
+                TUN_MIN_LOG_SILENCE,
+                tracing::error!(message_id = "YRah33os", ?error, "failed to wait for packet on tun device")
+            )
+        }
+        while let Some(buffer) = packet_buffer.buffer() {
+            match dev.try_recv(buffer) {
+                Ok(n) => match u16::try_from(n) {
+                    Ok(n) => packet_buffer.commit(n),
+                    Err(_) => rate_limited_log!(
+                        TUN_MIN_LOG_SILENCE,
+                        tracing::error!(message_id = "A1s4jdil", "ignoring oversized packet from tun device")
+                    ),
+                },
+                Err(error) if error.kind() == WouldBlock => return,
+                Err(error) => rate_limited_log!(
+                    TUN_MIN_LOG_SILENCE,
+                    tracing::error!(message_id = "uGIH5zSb", ?error, "failed to receive from tun device")
+                ),
+            }
+        }
+    }
+
+    pub fn set_dummy_config(&self) -> Result<(), ()> {
+        let network_config = OsNetworkConfig::dummy(
+            DnsContentBlock::default(),
+            false,
+            LocalNetworkAccess::Disabled,
+            TailscaleBypass::Disabled,
+            WireGuardBypass::Disabled,
+        );
+        self.set_config(network_config.mtu, network_config.ipv4, network_config.ipv6)
+    }
+
+    pub fn set_config(&self, mtu: u16, ipv4: Ipv4Addr, ipv6: Ipv6Network) -> Result<(), ()> {
+        let mut result = Ok(());
+
+        // Add new IPs before removing the current ones. This prevents having no addresses on the device temporarily, which may trigger automatic network manager device state changes with unintended side effects on DNS and routes.
+
+        if let Err(error) = self.dev.set_mtu(mtu) {
+            tracing::error!(message_id = "qPppmh83", ?error, "failed to set tun mtu");
+            result = Err(());
+        }
+        if let Err(error) = self.dev.add_address_v4(ipv4, 32u8)
+            && error.kind() != AlreadyExists
+        {
+            tracing::error!(message_id = "cY11X3I6", ?error, address = ?ipv4, "failed to add IPv4 tun address");
+            result = Err(());
+        }
+        if let Err(error) = std::fs::write(format!("/proc/sys/net/ipv6/conf/{TUN_NAME}/disable_ipv6"), "0") {
+            tracing::error!(message_id = "kr6uCx2I", ?error, "failed to enable IPv6 on tun device");
+        }
+        if let Err(error) = self.dev.add_address_v6(ipv6.network(), ipv6.prefix())
+            && error.kind() != AlreadyExists
+        {
+            tracing::error!(message_id = "wHod6P2h", ?error, address = ?ipv6, "failed to add IPv6 tun address");
+            result = Err(());
+        }
+
+        match self.dev.addresses() {
+            Ok(addresses) => {
+                for address in addresses {
+                    let keep = match address {
+                        IpAddr::V4(address) => address == ipv4,
+                        IpAddr::V6(address) => ipv6.contains(address),
+                    };
+                    if keep {
+                        continue;
+                    }
+                    if let Err(error) = self.dev.remove_address(address)
+                        && error.kind() != AddrNotAvailable
+                    {
+                        tracing::error!(message_id = "Th5DBPqt", ?error, ?address, "failed to remove tun address");
+                        result = Err(());
+                    }
+                }
+            }
+            Err(error) => {
+                tracing::error!(message_id = "1SDywPMm", ?error, "failed to retrieve tun addresses");
+                result = Err(());
+            }
+        }
+        result
+    }
+
+    pub fn spawn_read_task(&self, tunnel: QuicWgConnPacketSender) {
+        let mut read_task = self.read_task.lock().unwrap();
+        let dev = self.dev.clone();
+        *read_task = Some(AbortOnDrop::spawn(async move {
+            let mut packet_buffer = PacketBuffer::default();
+            loop {
+                Self::receive(&dev, &mut packet_buffer).await;
+                tunnel.send(packet_buffer.take_iter());
+            }
+        }));
+    }
+}

@@ -1,0 +1,70 @@
+use crate::{
+    int_helper::u16_into_usize,
+    quicwg::{QuicWgConnPacketSender, TUNNEL_MTU},
+    rate_limited_log,
+    tokio::AbortOnDrop,
+};
+use nix::{errno::Errno, unistd};
+use std::{os::fd::OwnedFd, sync::Arc, time::Duration};
+use tokio::io::unix::AsyncFd;
+
+const TUN_MIN_LOG_SILENCE: Duration = Duration::from_secs(5);
+
+pub struct Tun {
+    fd: Arc<OwnedFd>,
+    _read_loop_task: Option<AbortOnDrop>,
+}
+
+impl Tun {
+    pub fn spawn(fd: OwnedFd, tunnel: QuicWgConnPacketSender) -> Result<Self, Self> {
+        let fd = Arc::new(fd);
+        let fd_watcher = match AsyncFd::new(fd.clone()) {
+            Ok(fd_watcher) => fd_watcher,
+            Err(error) => {
+                tracing::error!(message_id = "sPCZix4J", ?error, "failed to create fd watcher for tun reader: {error}");
+                return Err(Self { fd, _read_loop_task: None });
+            }
+        };
+        let read_loop_task = tokio::spawn(async move {
+            let mut buf = Box::new([0; u16_into_usize(TUNNEL_MTU)]);
+            loop {
+                match fd_watcher.readable().await {
+                    Ok(mut guard) => match unistd::read(&fd_watcher, &mut buf[..]) {
+                        Ok(n) => {
+                            if n > 0 {
+                                tunnel.send(std::iter::once(&buf[..n]))
+                            }
+                        }
+                        Err(Errno::EAGAIN) => {
+                            guard.clear_ready();
+                        }
+                        Err(error) => {
+                            tracing::error!(message_id = "eagh6Noh", ?error, "failed to read from tun");
+                            break;
+                        }
+                    },
+                    Err(error) => {
+                        tracing::error!(message_id = "r5N6izcO", ?error, "failed to wait for tun to become readable");
+                        break;
+                    }
+                }
+            }
+        });
+        Ok(Self { fd, _read_loop_task: Some(read_loop_task.into()) })
+    }
+
+    pub fn write(&self, packet: &[u8]) {
+        if packet.len() > usize::from(TUNNEL_MTU) {
+            rate_limited_log!(
+                TUN_MIN_LOG_SILENCE,
+                tracing::warn!(message_id = "Yc1WxQBY", packet_size = packet.len(), "packet larger than MTU")
+            );
+        }
+        if let Err(error) = unistd::write(&self.fd, packet) {
+            rate_limited_log!(
+                TUN_MIN_LOG_SILENCE,
+                tracing::error!(message_id = "W0sOhigq", ?error, "writing packet to tun failed")
+            );
+        }
+    }
+}
