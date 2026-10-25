@@ -629,7 +629,7 @@ mod tests {
     #[tokio::test]
     async fn refresh_os_network_config_sets_the_config_again_while_connecting() {
         let dir = tempfile::tempdir().unwrap();
-        let client_state = ClientState::new(dir.path().into(), WgKeyStore::None, "test".into(), false).unwrap();
+        let client_state = ClientState::new(dir.path().into(), WgKeyStore::None, None, "test".into(), false).unwrap();
         let os = Arc::new(RecordingOs::default());
         let mut tunnel_state = TunnelState::new(client_state.clone(), os.clone());
 
@@ -666,7 +666,7 @@ mod tests {
     #[tokio::test]
     async fn a_connect_without_a_network_captures_traffic() {
         let dir = tempfile::tempdir().unwrap();
-        let client_state = ClientState::new(dir.path().into(), WgKeyStore::None, "test".into(), false).unwrap();
+        let client_state = ClientState::new(dir.path().into(), WgKeyStore::None, None, "test".into(), false).unwrap();
         let os = Arc::new(RecordingOs::default());
         let mut tunnel_state = TunnelState::new(client_state.clone(), os.clone());
 

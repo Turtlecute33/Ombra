@@ -8,6 +8,7 @@ import app.ombra.core.model.PinnedLocation
 import app.ombra.core.model.RelaySelector
 import app.ombra.core.model.TunnelArgs
 import app.ombra.core.model.TunnelMode
+import app.ombra.ipc.KeyRotation
 import app.ombra.ipc.Settings
 import app.ombra.ipc.SplitMode
 import kotlin.test.Test
@@ -33,6 +34,7 @@ class SettingsSyncTest {
             pinnedExits = listOf(PinnedLocation("DE", "ber", 1_700_000_000)),
             autoConnectOnLaunch = true,
             sniRelay = "example.org",
+            keyRotation = KeyRotation.Day1,
         )
         assertEquals(
             listOf(
@@ -46,6 +48,7 @@ class SettingsSyncTest {
                 ManagerCmd.SetApiHostAlternate(null),
                 ManagerCmd.SetPinnedExits(listOf(PinnedLocation("DE", "ber", 1_700_000_000))),
                 ManagerCmd.SetAutoConnect(true),
+                ManagerCmd.SetWgKeyMaxAge(86_400),
                 ManagerCmd.SetTunnelArgs(
                     TunnelArgs(ExitSelector.Country("DE"), RelaySelector.City("NL", "ams"), TunnelMode.TcpTls),
                     active = null,
@@ -79,6 +82,7 @@ class SettingsSyncTest {
         val pinned = listOf(PinnedLocation("US", "nyc", 1))
         assertEquals(listOf(ManagerCmd.SetPinnedExits(pinned)), commands(base.copy(pinnedExits = pinned)))
         assertEquals(listOf(ManagerCmd.SetAutoConnect(true)), commands(base.copy(autoConnectOnLaunch = true)))
+        assertEquals(listOf(ManagerCmd.SetWgKeyMaxAge(0)), commands(base.copy(keyRotation = KeyRotation.EachConnect)))
     }
 
     @Test

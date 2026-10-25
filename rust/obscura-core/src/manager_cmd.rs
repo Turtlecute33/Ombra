@@ -231,6 +231,10 @@ pub enum ManagerCmd {
     SetWireGuardBypass {
         enable: bool,
     },
+    // Ombra patch P14.
+    SetWgKeyMaxAge {
+        secs: u64,
+    },
 }
 
 #[derive(Debug, derive_more::From, Serialize)]
@@ -366,6 +370,7 @@ impl ManagerCmd {
             Self::SetInNewAccountFlow { value } => manager.run_on_client_state(|c| c.set_in_new_account_flow(value)),
             Self::SetPinnedExits { exits } => manager.run_on_client_state(|c| c.set_pinned_exits(exits)),
             Self::SetSniRelay { host } => manager.run_on_client_state(|c| c.set_sni_relay(host)),
+            Self::SetWgKeyMaxAge { secs } => manager.run_on_client_state(|c| c.set_wg_key_max_age(secs)),
             Self::SetTunnelArgs { args, active } => manager.run_on_client_state(|c| c.set_tunnel_target_state(args, active)),
             Self::SetUseSystemDns { enable } => manager.run_on_client_state(|c| c.set_use_system_dns(enable)),
             Self::SetLocalNetworkAccess { enable } => manager.run_on_client_state(|c| c.set_local_network_access(enable)),

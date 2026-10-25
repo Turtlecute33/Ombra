@@ -1,6 +1,7 @@
 package app.ombra.core.model
 
 import app.ombra.ipc.IpcJson
+import app.ombra.ipc.KeyRotation
 import app.ombra.ipc.Settings
 import app.ombra.ipc.StateKind
 import app.ombra.ipc.SystemState
@@ -81,6 +82,7 @@ class CoreContractTest {
         "setPinnedExits" to CoreCommands.setPinnedExits(listOf(PinnedLocation("US", "nyc", 1_700_000_000))),
         "setSniRelay" to CoreCommands.setSniRelay("sni.example.org"),
         "setSniRelayDefault" to CoreCommands.setSniRelay(null),
+        "setWgKeyMaxAge" to CoreCommands.setWgKeyMaxAge(86_400),
         // OmbraVpnService: connect with the settings, connect with the stored args, disconnect.
         "setTunnelArgs.connect" to CoreCommands.connect(speedSettings.tunnelArgs()),
         "setTunnelArgs.connectStored" to CoreCommands.connect(null),
@@ -113,10 +115,11 @@ class CoreContractTest {
             autoConnectOnLaunch = true,
             sniRelay = "sni.example.org",
             apiHostAlternate = "api.example.org",
+            keyRotation = KeyRotation.Day1,
         )
         val sent = SettingsSync.all(settings).map { CoreJson.parseToJsonElement(it.encode()) }
         sent.forEach { assertTrue(it in commands.values, "not in the contract: $it") }
-        assertEquals(11, sent.size)
+        assertEquals(12, sent.size)
     }
 
     @Test

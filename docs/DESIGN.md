@@ -119,7 +119,7 @@ export names in `src/android/ffi.rs`. The exact Java side:
 package app.ombra.core.ffi;
 public final class Native {
     @androidx.annotation.Keep public static final class FfiHandle { private FfiHandle() {} }
-    static native FfiHandle initialize(String configDir, String userAgent, byte[] wgSecretKey, boolean persistLogs);
+    static native FfiHandle initialize(String configDir, String userAgent, byte[] wgSecretKey, byte[] configKey, boolean persistLogs);
     static native void jsonFfi(FfiHandle handle, String json, java.util.concurrent.CompletableFuture<String> future);
     // index >= 1; networkHandle = Network.getNetworkHandle() (0 = do not bind); mtuHint = CLAT-aware MTU (0 = unknown)
     static native void setNetworkInterface(FfiHandle handle, String name, int index, long networkHandle, int mtuHint);
@@ -268,6 +268,7 @@ Settings(
   pinnedExits: List<PinnedLocation> = [], pinnedRelays: List<String> = [],
   autoConnectOnLaunch: Boolean = false,
   sniRelay: String? = null, apiHostAlternate: String? = null,
+  keyRotation: KeyRotation = days30,     // days30 | day1 | eachConnect -> setWgKeyMaxAge (P14)
   diagnostics: Boolean = false,          // persisted Rust logs + verbose RUST_LOG
   hideNotificationDetails: Boolean = true
 )
@@ -384,8 +385,9 @@ Android side:
 
 - `android:allowBackup="false"`, `dataExtractionRules` that exclude everything, `fullBackupContent`
   false. Secrets only in `noBackupFilesDir`.
-- WireGuard secret key encrypted with an Android Keystore key (P0). Account number and token stay in
-  Rust `config.json` in `noBackupFilesDir` (credential-encrypted storage).
+- WireGuard secret key encrypted with an Android Keystore key (P0). Rust `config.json` (account number,
+  token) is encrypted with a key that Android Keystore keeps (`ConfigKeyVault`, P13), in
+  `noBackupFilesDir` (credential-encrypted storage).
 - `FLAG_SECURE` on onboarding and account screens, and an option for all screens.
   `setHideOverlayWindows(true)` (permission `HIDE_OVERLAY_WINDOWS`) on the activity.
 - No exported components except: the launcher activity, `OmbraVpnService` (protected by

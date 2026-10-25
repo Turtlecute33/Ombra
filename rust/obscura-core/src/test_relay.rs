@@ -421,6 +421,7 @@ struct TestApiState {
 #[derive(Clone, Debug)]
 pub struct ApiRequest {
     pub method: String,
+    pub path: String,
     pub body: serde_json::Value,
     pub received_at: std::time::Instant,
 }
@@ -499,7 +500,7 @@ async fn serve_api_request(stream: TcpStream, state: &TestApiState) -> io::Resul
     }
     let mut body = vec![0u8; content_length];
     stream.read_exact(&mut body).await?;
-    let request = ApiRequest { method, body: serde_json::from_slice(&body).unwrap_or_default(), received_at };
+    let request = ApiRequest { method, path: path.clone(), body: serde_json::from_slice(&body).unwrap_or_default(), received_at };
     (state.on_request)(&request);
     state.requests.lock().unwrap().push(request.clone());
 
@@ -511,6 +512,8 @@ async fn serve_api_request(stream: TcpStream, state: &TestApiState) -> io::Resul
             tunnel.id = request.body["id"].as_str().unwrap_or_default().to_owned();
             ("200 OK", serde_json::to_string(&tunnel).unwrap())
         }
+        // The registration before a connect with a new key (Ombra patch P14).
+        ("POST", "/api/cache_wg_key", _) => ("200 OK", String::new()),
         ("DELETE", "/api/tunnel", _) => {
             let mut failing = state.failing_deletes.lock().unwrap();
             if *failing > 0 {
@@ -566,7 +569,7 @@ impl SpeedSetup {
         // As the apps do at start. A second install fails, which is fine.
         let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
         let dir = tempfile::tempdir().unwrap();
-        let client_state = ClientState::new(dir.path().into(), WgKeyStore::None, "test".into(), false).unwrap();
+        let client_state = ClientState::new(dir.path().into(), WgKeyStore::None, None, "test".into(), false).unwrap();
         // A cached auth token, so that no request asks for one. The login also resets the WireGuard key, so it comes
         // first.
         let account_id = AccountId::from_string_unchecked("test-account".into());
@@ -600,7 +603,7 @@ impl SpeedSetup {
         let id_in_config_at_create = Arc::new(Mutex::new(Vec::new()));
         let id_in_config = id_in_config_at_create.clone();
         let api = TestApi::spawn(Some(tunnel), move |request| {
-            if request.method == "POST" {
+            if request.method == "POST" && request.path == "/api/tunnel" {
                 let config_json = std::fs::read_to_string(&config_file).unwrap();
                 id_in_config
                     .lock()

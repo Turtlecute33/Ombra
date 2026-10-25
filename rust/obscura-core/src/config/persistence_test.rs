@@ -17,11 +17,14 @@ use uuid::Uuid;
 
 use crate::config::CONFIG_FILE;
 use crate::config::Config;
+use crate::config::ConfigKey;
 use crate::config::ConfigLoadError;
 use crate::config::PinnedLocation;
 use crate::config::cached::ConfigCached;
 use crate::config::load;
+use crate::config::load_with_key;
 use crate::config::save;
+use crate::config::save_with_key;
 use crate::exit_selection::ExitSelector;
 use crate::wg_key_store::WgKeyStore;
 
@@ -89,6 +92,74 @@ fn load_error_does_not_quote_the_file() {
     );
     let message = ConfigLoadError::DeserializeError(json_error).to_string();
     assert!(!message.contains("12345678901234567890"), "{message}");
+}
+
+fn key(byte: u8) -> ConfigKey {
+    ConfigKey::new(&[byte; 32]).unwrap()
+}
+
+fn backups(dir: &Path) -> Vec<Vec<u8>> {
+    fs::read_dir(dir)
+        .unwrap()
+        .map(|entry| entry.unwrap())
+        .filter(|entry| entry.file_name().to_string_lossy().starts_with("config-backup-"))
+        .map(|entry| fs::read(entry.path()).unwrap())
+        .collect()
+}
+
+fn contains(haystack: &[u8], needle: &str) -> bool {
+    haystack.windows(needle.len()).any(|window| window == needle.as_bytes())
+}
+
+/// Ombra patch P13.
+#[test]
+fn an_encrypted_config_shows_no_values_and_loads_with_its_key() {
+    let config = random_config();
+    let marker = config.api_url.clone().unwrap();
+    let dir = tempdir().unwrap();
+
+    save_with_key(dir.as_ref(), &config, Some(&key(7))).unwrap();
+    assert!(!contains(&fs::read(dir.as_ref().join(CONFIG_FILE)).unwrap(), &marker));
+    assert_eq!(load_with_key(dir.as_ref(), &WgKeyStore::Plaintext, Some(&key(7))).unwrap(), config);
+}
+
+/// Ombra patch P13: the file of an older version is encrypted when it loads, and its plain text backups go.
+#[test]
+fn a_plain_text_config_is_encrypted_when_it_loads() {
+    let config = random_config();
+    let marker = config.api_url.clone().unwrap();
+    let dir = tempdir().unwrap();
+    let file = dir.as_ref().join(CONFIG_FILE);
+
+    save(dir.as_ref(), &config).unwrap();
+    fs::write(dir.as_ref().join("config-backup-2026-01-01T00-00-00.000.json"), &marker).unwrap();
+    assert!(contains(&fs::read(&file).unwrap(), &marker));
+    assert_eq!(load_with_key(dir.as_ref(), &WgKeyStore::Plaintext, Some(&key(7))).unwrap(), config);
+    assert!(!contains(&fs::read(&file).unwrap(), &marker));
+    assert_eq!(load_with_key(dir.as_ref(), &WgKeyStore::Plaintext, Some(&key(7))).unwrap(), config);
+    assert!(backups(dir.as_ref()).is_empty());
+}
+
+/// Ombra patch P13: Java gives a new key only when the old one is gone, so the file can never open again. It resets
+/// like a file that does not parse, and its copy stays encrypted.
+#[test]
+fn an_encrypted_config_without_its_key_resets() {
+    let config = random_config();
+    for wrong_key in [Some(key(8)), None] {
+        let dir = tempdir().unwrap();
+        save_with_key(dir.as_ref(), &config, Some(&key(7))).unwrap();
+        let sealed = fs::read(dir.as_ref().join(CONFIG_FILE)).unwrap();
+
+        assert_eq!(
+            load_with_key(dir.as_ref(), &WgKeyStore::Plaintext, wrong_key.as_ref()).unwrap(),
+            Config::default()
+        );
+        assert_eq!(backups(dir.as_ref()), vec![sealed]);
+        assert_eq!(
+            load_with_key(dir.as_ref(), &WgKeyStore::Plaintext, wrong_key.as_ref()).unwrap(),
+            Config::default()
+        );
+    }
 }
 
 #[test]
@@ -191,6 +262,7 @@ fn test_ignore_invalid_fields() {
         force_tcp_tls_relay_transport: (),
         dns_content_block: Default::default(),
         owned_udp_tunnel_ids: vec![Uuid::new_v4()],
+        wg_key_max_age_secs: Some(86_400),
     };
     let example_json = match serde_json::to_value(&example_config).unwrap() {
         serde_json::Value::Object(m) => m,

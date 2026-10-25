@@ -31,7 +31,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let args = Args::parse();
 
-    let client_state = Arc::new(ClientState::new(".".into(), WgKeyStore::Plaintext, "list-relays".into(), true)?);
+    let client_state = Arc::new(ClientState::new(".".into(), WgKeyStore::Plaintext, None, "list-relays".into(), true)?);
     client_state.set_api_url(args.base_url);
     client_state.set_feature_flag(FeatureFlagKey::TcpTlsTunnel.into(), args.force_tcp_tls);
     if let Some(account_no) = args.account_no {

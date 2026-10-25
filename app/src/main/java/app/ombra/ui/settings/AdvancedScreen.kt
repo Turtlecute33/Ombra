@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
@@ -32,10 +33,12 @@ import app.ombra.BuildConfig
 import app.ombra.R
 import app.ombra.data.CoreSource
 import app.ombra.data.SettingsEditor
+import app.ombra.ipc.KeyRotation
 import app.ombra.ui.components.ConnectionDetailsSheet
 import app.ombra.ui.components.Icons
 import app.ombra.ui.components.ListRow
 import app.ombra.ui.components.NavRow
+import app.ombra.ui.components.RadioRow
 import app.ombra.ui.components.RequestErrorMessage
 import app.ombra.ui.components.RowGroup
 import app.ombra.ui.components.SectionHeader
@@ -71,6 +74,19 @@ fun AdvancedScreen(core: CoreSource, editor: SettingsEditor, onBack: () -> Unit,
                 missing = stringResource(R.string.advanced_key_when_connected),
             )
         }
+
+        SectionHeader(stringResource(R.string.advanced_rotation))
+        RowGroup(Modifier.selectableGroup()) {
+            KEY_ROTATIONS.forEach { (rotation, title, detail) ->
+                RadioRow(
+                    title = stringResource(title),
+                    supporting = stringResource(detail),
+                    selected = settings.keyRotation == rotation,
+                    onClick = { vm.update { it.copy(keyRotation = rotation) } },
+                )
+            }
+        }
+        GroupNote(stringResource(R.string.advanced_rotation_note))
 
         SectionHeader(stringResource(R.string.advanced_hosts))
         RowGroup {
@@ -116,6 +132,14 @@ fun AdvancedScreen(core: CoreSource, editor: SettingsEditor, onBack: () -> Unit,
 
     if (showDetails && tunnel != null) ConnectionDetailsSheet(tunnel, onDismiss = { showDetails = false })
 }
+
+private data class RotationOption(val rotation: KeyRotation, val title: Int, val detail: Int)
+
+private val KEY_ROTATIONS = listOf(
+    RotationOption(KeyRotation.Days30, R.string.rotation_days30, R.string.rotation_days30_detail),
+    RotationOption(KeyRotation.Day1, R.string.rotation_day1, R.string.rotation_day1_detail),
+    RotationOption(KeyRotation.EachConnect, R.string.rotation_each_connect, R.string.rotation_each_connect_detail),
+)
 
 /** A key or address in the mono font, selectable for copying; [missing] when there is none. */
 @Composable

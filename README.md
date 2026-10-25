@@ -37,7 +37,10 @@ Android 16 or newer (API 36), arm64.
 - No analytics, no crash reporting, no Google Play Services, no third-party SDKs. The app code makes
   no network calls; only the Rust core talks to Obscura.
 - The WireGuard secret key is encrypted with an Android Keystore key (StrongBox when available) and
-  never written to the config file.
+  never written to the config file. The config file, with the account number and the login token, is
+  encrypted too.
+- A new WireGuard key every 30 days, every day or at each connect. The exit server can link your
+  sessions only while it sees the same key.
 - No log files and almost nothing in logcat unless you turn on Diagnostics.
 - Screenshots blocked on the account screens; a copied account number is cleared after 60 s.
 

@@ -50,6 +50,7 @@ pub async fn run(
     let manager = Manager::new(
         args.config_dir.into(),
         wg_key_store,
+        None,
         format!("obscura.net/{}/{src_version}", std::env::consts::OS),
         manager_os_impl.clone(),
         os_impl.network_interface(),

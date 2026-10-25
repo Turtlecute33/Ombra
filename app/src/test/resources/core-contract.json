@@ -207,6 +207,11 @@
       "setUseSystemDns": {
         "enable": true
       }
+    },
+    "setWgKeyMaxAge": {
+      "setWgKeyMaxAge": {
+        "secs": 86400
+      }
     }
   },
   "enums": {

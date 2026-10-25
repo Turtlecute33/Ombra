@@ -104,6 +104,10 @@ sealed interface ManagerCmd {
 
     @Serializable @SerialName("setUseSystemDns")
     data class SetUseSystemDns(val enable: Boolean) : ManagerCmd
+
+    /** Ombra patch P14: 0 makes a new key at each connect. */
+    @Serializable @SerialName("setWgKeyMaxAge")
+    data class SetWgKeyMaxAge(val secs: Long) : ManagerCmd
 }
 
 internal object ManagerCmdSerializer : ExternallyTaggedSerializer<ManagerCmd>(
@@ -134,6 +138,7 @@ internal object ManagerCmdSerializer : ExternallyTaggedSerializer<ManagerCmd>(
     ManagerCmd.SetSniRelay::class to ManagerCmd.SetSniRelay.serializer(),
     ManagerCmd.SetTunnelArgs::class to ManagerCmd.SetTunnelArgs.serializer(),
     ManagerCmd.SetUseSystemDns::class to ManagerCmd.SetUseSystemDns.serializer(),
+    ManagerCmd.SetWgKeyMaxAge::class to ManagerCmd.SetWgKeyMaxAge.serializer(),
 )
 
 /**

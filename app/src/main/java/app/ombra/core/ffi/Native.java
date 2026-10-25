@@ -40,7 +40,7 @@ public final class Native {
         }
     }
 
-    static native FfiHandle initialize(String configDir, String userAgent, byte[] wgSecretKey, boolean persistLogs);
+    static native FfiHandle initialize(String configDir, String userAgent, byte[] wgSecretKey, byte[] configKey, boolean persistLogs);
 
     static native void jsonFfi(FfiHandle handle, String json, CompletableFuture<String> future);
 

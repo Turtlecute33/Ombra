@@ -303,6 +303,7 @@ fn commands() -> Vec<(&'static str, ManagerCmd)> {
         ),
         ("setSniRelay", ManagerCmd::SetSniRelay { host: Some("sni.example.org".into()) }),
         ("setSniRelayDefault", ManagerCmd::SetSniRelay { host: None }),
+        ("setWgKeyMaxAge", ManagerCmd::SetWgKeyMaxAge { secs: 86_400 }),
         // OmbraVpnService: connect with the settings, connect with the stored args, disconnect.
         (
             "setTunnelArgs.connect",

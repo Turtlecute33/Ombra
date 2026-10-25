@@ -106,7 +106,7 @@ mod tests {
     const NAME: &str = "localhost";
 
     fn client_state(config_dir: &std::path::Path) -> ClientStateHandle {
-        let client_state = ClientState::new(config_dir.into(), WgKeyStore::None, "test".into(), false).unwrap();
+        let client_state = ClientState::new(config_dir.into(), WgKeyStore::None, None, "test".into(), false).unwrap();
         // NAME stands in for the API host.
         client_state.change_config(|config| config.api_url = Some(format!("https://{NAME}/api")));
         client_state

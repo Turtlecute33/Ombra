@@ -94,6 +94,7 @@ pub unsafe extern "C" fn initialize(
         match Manager::new(
             config_dir,
             wg_key_store,
+            None,
             user_agent,
             os_impl.clone(),
             os_impl.network_interface(),

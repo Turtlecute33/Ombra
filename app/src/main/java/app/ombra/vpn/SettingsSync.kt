@@ -30,6 +30,7 @@ object SettingsSync {
         if (changed { it.apiHostAlternate }) add(CoreCommands.setApiHostAlternate(after.apiHostAlternate))
         if (changed { it.pinnedExits }) add(CoreCommands.setPinnedExits(after.pinnedExits))
         if (changed { it.autoConnectOnLaunch }) add(CoreCommands.setAutoConnect(after.autoConnectOnLaunch))
+        if (changed { it.keyRotation }) add(CoreCommands.setWgKeyMaxAge(after.keyRotation.maxAgeSecs))
         // active = null: a running tunnel reconnects with the new args, a stopped one only stores them.
         if (changed { it.tunnelArgs() }) add(CoreCommands.setTunnelArgs(after.tunnelArgs(), active = null))
     }

@@ -9,6 +9,7 @@ use super::{
 };
 use crate::wg_key_store::{KeychainSetSecretKeyFn, WgKeyStore};
 use crate::{
+    config::ConfigKey,
     manager::Manager,
     manager_cmd::{ManagerCmd, redacted_json_error},
     net::NetworkInterface,
@@ -68,6 +69,7 @@ fn initialize(
     j_config_dir: &JString,
     j_user_agent: &JString,
     j_wg_secret_key: &JByteArray,
+    j_config_key: &JByteArray,
     persist_logs: bool,
     class_cache: Arc<ClassCache>,
 ) -> anyhow::Result<Global> {
@@ -95,10 +97,13 @@ fn initialize(
         secret_key: wg_secret_key_from_java(env, j_wg_secret_key),
         set_secret_key: store_wg_secret_key_fn(jvm.clone(), class_cache.clone()),
     };
+    // config.json is encrypted with this key (Ombra patch P13). Java keeps it encrypted with an Android Keystore key.
+    let config_key = config_key_from_java(env, j_config_key);
     let os_impl = Arc::new(AndroidOsImpl::new(jvm, class_cache.clone()));
     let manager = Manager::new(
         config_dir.as_path().into(),
         wg_key_store,
+        config_key,
         user_agent.as_str().into(),
         os_impl.clone(),
         os_impl.network_interface(),
@@ -122,6 +127,27 @@ fn wg_secret_key_from_java(env: &mut JNIEnv, j_wg_secret_key: &JByteArray) -> Op
             None
         }
     }
+}
+
+/// `null` or an empty array: Java has no key, and config.json stays plain text. An encrypted file then resets.
+fn config_key_from_java(env: &mut JNIEnv, j_config_key: &JByteArray) -> Option<ConfigKey> {
+    if j_config_key.is_null() {
+        tracing::warn!(message_id = "Zp4nLc8T", "no config key from Java, config stays plain text");
+        return None;
+    }
+    let key = match env.convert_byte_array(j_config_key) {
+        Ok(key) => Zeroizing::new(key),
+        Err(error) => {
+            clear_pending_exception(env);
+            tracing::error!(message_id = "Wb6tQe3R", ?error, "failed to read config key from Java: {error}");
+            return None;
+        }
+    };
+    let config_key = ConfigKey::new(&key);
+    if config_key.is_none() {
+        tracing::error!(message_id = "Gm2vHs9X", length = key.len(), "config key from Java has wrong length");
+    }
+    config_key
 }
 
 /// `WgKeyStore::Keychain` callback that calls `Callbacks.ffiStoreWgSecretKey(byte[]): boolean`.
@@ -165,7 +191,7 @@ fn clear_pending_exception(env: &mut JNIEnv) {
 
 /// cbindgen:ignore
 /// Must be called on a Java thread.
-/// `wgSecretKey` may be `null`. `persistLogs == false` writes no log files.
+/// `wgSecretKey` and `configKey` may be `null`. `persistLogs == false` writes no log files.
 #[unsafe(no_mangle)]
 pub extern "C" fn Java_app_ombra_core_ffi_Native_initialize(
     mut env: JNIEnv,
@@ -173,6 +199,7 @@ pub extern "C" fn Java_app_ombra_core_ffi_Native_initialize(
     j_config_dir: JString,
     j_user_agent: JString,
     j_wg_secret_key: JByteArray,
+    j_config_key: JByteArray,
     j_persist_logs: jboolean,
 ) -> jobject {
     tracing::info!(message_id = "PRXlxa85", "starting ffi initialization");
@@ -181,7 +208,16 @@ pub extern "C" fn Java_app_ombra_core_ffi_Native_initialize(
         first_init = true;
         let class_cache = ClassCache::new(&mut env).expect("creating class cache failed");
         let persist_logs = j_persist_logs != JNI_FALSE;
-        let global = initialize(&mut env, &j_config_dir, &j_user_agent, &j_wg_secret_key, persist_logs, class_cache).expect("`initialize` failed");
+        let global = initialize(
+            &mut env,
+            &j_config_dir,
+            &j_user_agent,
+            &j_wg_secret_key,
+            &j_config_key,
+            persist_logs,
+            class_cache,
+        )
+        .expect("`initialize` failed");
         tracing::info!(message_id = "Y6cNkZXW", "ffi initialized");
         global
     });

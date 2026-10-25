@@ -41,6 +41,7 @@ data class Settings(
     val autoConnectOnLaunch: Boolean = false,
     val sniRelay: String? = null,
     val apiHostAlternate: String? = null,
+    val keyRotation: KeyRotation = KeyRotation.Days30,
     /**
      * Persisted Rust logs and verbose RUST_LOG, both from the next :vpn process start. Off also
      * stops the persisted log at once and deletes it.
@@ -73,6 +74,23 @@ data class Settings(
     companion object {
         private fun encode(settings: Settings): JsonObject = IpcJson.encodeToJsonElement(serializer(), settings).jsonObject
     }
+}
+
+/**
+ * When Rust makes a new WireGuard key (rust/UPSTREAM.md P14): once the key is [maxAgeSecs] old, at
+ * the next connect or disconnect. While the exit sees one key, it can link the sessions.
+ */
+@Serializable
+enum class KeyRotation(val maxAgeSecs: Long) {
+    /** The upstream default. */
+    @SerialName("days30")
+    Days30(30L * 24 * 60 * 60),
+
+    @SerialName("day1")
+    Day1(24L * 60 * 60),
+
+    @SerialName("eachConnect")
+    EachConnect(0),
 }
 
 /** Per-app split tunnelling. Ombra itself always stays outside the tunnel. */

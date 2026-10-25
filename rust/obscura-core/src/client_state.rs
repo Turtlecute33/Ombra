@@ -11,7 +11,7 @@ use crate::manager::TunnelArgs;
 use crate::network_config::DnsContentBlock;
 use crate::tunnel_state::TargetState;
 use crate::udp_tunnel::{self, UdpTunnelClaims};
-use crate::{config::ConfigHandle, net::interface_mtu};
+use crate::{config::ConfigHandle, config::ConfigKey, net::interface_mtu};
 use crate::{config::PinnedLocation, exit_selection::ExitSelectionState};
 use crate::{config::RotationReason, net::NetworkInterface, network_config::DnsConfig, quicwg::QuicWgConnHandshaking, wg_key_store::WgKeyStore};
 use crate::{config::cached::ConfigCached, exit_selection::ExitSelector};
@@ -93,10 +93,11 @@ impl ClientState {
     pub fn new(
         config_dir: PathBuf,
         mut wg_key_store: WgKeyStore,
+        config_key: Option<ConfigKey>,
         user_agent: String,
         force_init_inactive: bool,
     ) -> Result<ClientStateHandle, ConfigLoadError> {
-        let mut config = ConfigHandle::new(config_dir, &wg_key_store)?;
+        let mut config = ConfigHandle::new(config_dir, &wg_key_store, config_key)?;
         // The config holds the stored key now; the copy from the OS side is wiped (Ombra).
         if let WgKeyStore::Keychain { secret_key, .. } = &mut wg_key_store {
             *secret_key = None;
@@ -467,6 +468,7 @@ impl ClientStateHandle {
     ) -> Result<TunnelConnection, TunnelConnectError> {
         // Speed mode tunnels of an earlier run hold slots in every mode (Ombra patch P5).
         self.delete_leftover_udp_tunnels();
+        self.prepare_wg_key().await;
         if *relay_transport == RelayTransport::WireguardUdp {
             return self.connect_wireguard_udp(args, network_interface, selection_state).await;
         }
@@ -985,9 +987,24 @@ impl ClientStateHandle {
     pub fn rotate_wireguard_key_if_required(&self) {
         self.change(|inner| {
             inner.config.change(|config| {
-                config.wireguard_key_cache.rotate_if_required(&inner.wg_key_store);
+                let max_age = config.wg_key_max_age();
+                config.wireguard_key_cache.rotate_if_required(max_age, &inner.wg_key_store);
             })
         })
+    }
+
+    /// Before each new tunnel (Ombra patch P14). Upstream checks the key age only when the tunnel stops, and an
+    /// always-on tunnel almost never stops. A new key is registered before the create call, so the API removes the old
+    /// keys also when the client is never disconnected. A failed registration does not stop the connect.
+    async fn prepare_wg_key(&self) {
+        self.rotate_wireguard_key_if_required();
+        if let Err(error) = self.register_cached_wireguard_key_if_new().await {
+            tracing::warn!(message_id = "Kx7mRw2D", ?error, "could not register the wireguard key before connecting");
+        }
+    }
+
+    pub fn set_wg_key_max_age(&self, secs: u64) {
+        self.change_config(|config| config.wg_key_max_age_secs = Some(secs))
     }
 
     // Registers the current wireguard key via the API server if it has not been registered yet. Because this function is a NOOP after first successful use (until key rotation), it may be called frequently. Most importantly it should be called after disconnecting (due to possible key rotation) and after observing that the user paid.
@@ -1147,7 +1164,7 @@ mod tests {
     use tokio::time::{sleep, timeout};
 
     fn client_state(config_dir: &std::path::Path) -> ClientStateHandle {
-        ClientState::new(config_dir.into(), WgKeyStore::None, "test".into(), false).unwrap()
+        ClientState::new(config_dir.into(), WgKeyStore::None, None, "test".into(), false).unwrap()
     }
 
     #[test]
@@ -1293,7 +1310,7 @@ mod tests {
             secret_key: Some(zeroize::Zeroizing::new(vec![7; 32])),
             set_secret_key: Box::new(|_: &[u8; 32]| true),
         };
-        let client_state = ClientState::new(dir.path().into(), key_store, "test".into(), false).unwrap();
+        let client_state = ClientState::new(dir.path().into(), key_store, None, "test".into(), false).unwrap();
         assert!(matches!(
             &client_state.borrow().wg_key_store,
             WgKeyStore::Keychain { secret_key: None, .. }
@@ -1349,10 +1366,17 @@ mod tests {
         let tunnel_id = connection.tunnel_id;
         assert_eq!(*setup.id_in_config_at_create.lock().unwrap(), [true]);
         let requests = api.requests();
-        let [ApiRequest { method, body: create, .. }] = &requests[..] else {
+        // The key of a new config is not registered yet: that comes first (Ombra patch P14).
+        let [
+            ApiRequest { method: register_method, path: register_path, body: register, .. },
+            ApiRequest { method, path, body: create, .. },
+        ] = &requests[..]
+        else {
             panic!("unexpected requests {requests:?}")
         };
-        assert_eq!(method, "POST");
+        assert_eq!((register_method.as_str(), register_path.as_str()), ("POST", "/api/cache_wg_key"));
+        assert_eq!(register["public_key"], serde_json::to_value(setup.client_public_key).unwrap());
+        assert_eq!((method.as_str(), path.as_str()), ("POST", "/api/tunnel"));
         let RelaySelector::Relay { id: relay_id } = &args.relay else {
             unreachable!()
         };
@@ -1400,13 +1424,13 @@ mod tests {
         let connect = client_state.connect(args, &RelayTransport::WireguardUdp, None, &mut selection_state);
         tokio::select! {
             _ = connect => panic!("connected although the create call was still waiting"),
-            () = wait_until("the create call reaches the API", || !api.requests().is_empty()) => {}
+            () = wait_until("the create call reaches the API", || !api.tunnel_ids("POST").is_empty()) => {}
         }
 
         wait_until("the tunnel is deleted", || !api.deleted_tunnel_ids().is_empty()).await;
         assert_eq!(api.deleted_tunnel_ids(), api.tunnel_ids("POST"));
         let requests = api.requests();
-        let [create, delete] = &requests[..] else {
+        let [_register, create, delete] = &requests[..] else {
             panic!("unexpected requests {requests:?}")
         };
         assert!(delete.received_at >= create.received_at + CREATE_DELAY, "{requests:?}");
@@ -1459,5 +1483,21 @@ mod tests {
         assert_eq!(api.deleted_tunnel_ids(), vec![at_logout.to_string(); 3]);
         sleep(Duration::from_millis(500)).await;
         assert_eq!(api.deleted_tunnel_ids().len(), 3, "no delete after it worked");
+    }
+
+    /// Ombra patch P14: before each new tunnel a key rotates once it is as old as the max age that Kotlin sets, also
+    /// when its registration fails (here: no account).
+    #[tokio::test]
+    async fn a_due_key_rotates_before_a_new_tunnel() {
+        let dir = tempdir().unwrap();
+        let client_state = client_state(dir.path());
+        let (_, first) = client_state.use_wg_key_pair();
+        client_state.prepare_wg_key().await;
+        assert_eq!(client_state.use_wg_key_pair().1, first, "the default max age is 30 days");
+
+        client_state.set_wg_key_max_age(0);
+        assert_eq!(client_state.borrow().config().wg_key_max_age(), Duration::ZERO);
+        client_state.prepare_wg_key().await;
+        assert_ne!(client_state.use_wg_key_pair().1, first);
     }
 }

@@ -73,6 +73,7 @@ object CoreHost {
 
     private lateinit var appContext: Context
     private lateinit var wgKeyVault: WgKeyVault
+    private lateinit var configKeyVault: ConfigKeyVault
     private lateinit var wanted: VpnWanted
     private var initialized = false
 
@@ -119,6 +120,7 @@ object CoreHost {
         appContext = context.applicationContext
         val dir = appContext.noBackupFilesDir
         wgKeyVault = WgKeyVault(dir)
+        configKeyVault = ConfigKeyVault(dir)
         wanted = VpnWanted(File(dir, VpnWanted.FILE_NAME))
         controller = CoreController(CoreBridge, SettingsStore(dir), wanted, scope)
         val bundleInfo = BundleInfo(appVersion = BuildConfig.VERSION_NAME, androidSdk = Build.VERSION.SDK_INT)
@@ -195,11 +197,14 @@ object CoreHost {
         // Rust aborts the process when the config dir is missing.
         val configDir = File(dir, "core").apply { mkdirs() }
         Os.setenv("RUST_LOG", if (diagnostics) DIAGNOSTICS_RUST_LOG else QUIET_RUST_LOG, true)
+        // Throws when the Keystore fails in a way that may pass: no start this time, and the config stays.
+        val configKey = configKeyVault.loadOrCreate()
         val secret = wgKeyVault.load()
         try {
-            RustFfi.initialize(configDir.absolutePath, "Ombra-Android/${BuildConfig.VERSION_NAME}", secret, diagnostics)
+            RustFfi.initialize(configDir.absolutePath, "Ombra-Android/${BuildConfig.VERSION_NAME}", secret, configKey, diagnostics)
         } finally {
             secret?.fill(0)
+            configKey?.fill(0)
         }
         true
     } catch (t: Throwable) {

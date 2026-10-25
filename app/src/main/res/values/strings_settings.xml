@@ -180,6 +180,14 @@
     <string name="advanced_rotate_action">Rotate</string>
     <string name="advanced_rotated">Rotated</string>
     <string name="advanced_key_when_connected">Shows while connected</string>
+    <string name="advanced_rotation">Automatic new key</string>
+    <string name="rotation_days30">Every 30 days</string>
+    <string name="rotation_days30_detail">The Obscura default</string>
+    <string name="rotation_day1">Every day</string>
+    <string name="rotation_day1_detail">A new key at the first connect after one day</string>
+    <string name="rotation_each_connect">At each connect</string>
+    <string name="rotation_each_connect_detail">A new key for each tunnel. A reconnect can take a little longer.</string>
+    <string name="advanced_rotation_note">While the exit server sees the same key, it can link your sessions. A tunnel that stays up keeps its key: the new key comes at the next connect, reconnect or disconnect.</string>
     <string name="advanced_hosts">Hosts</string>
     <string name="advanced_sni">Relay SNI host</string>
     <string name="advanced_sni_detail">The name that the relay connection shows to the network</string>

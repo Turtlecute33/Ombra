@@ -103,6 +103,8 @@ object CoreCommands {
 
     fun setAutoConnect(enable: Boolean) = CoreCall(ManagerCmd.SetAutoConnect(enable), LOCAL_TIMEOUT, ::decodeUnit)
 
+    fun setWgKeyMaxAge(secs: Long) = CoreCall(ManagerCmd.SetWgKeyMaxAge(secs), LOCAL_TIMEOUT, ::decodeUnit)
+
     fun setInNewAccountFlow(value: Boolean) = CoreCall(ManagerCmd.SetInNewAccountFlow(value), LOCAL_TIMEOUT, ::decodeUnit)
 
     fun setPinnedExits(exits: List<PinnedLocation>) = CoreCall(ManagerCmd.SetPinnedExits(exits), LOCAL_TIMEOUT, ::decodeUnit)

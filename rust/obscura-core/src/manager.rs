@@ -22,7 +22,7 @@ use crate::{
     backoff::Backoff,
     cached_value::CachedValue,
     client_state::{AccountStatus, ClientState, ClientStateHandle},
-    config::{Config, ConfigLoadError, PinnedLocation, cached::ConfigCached, feature_flags::FeatureFlags},
+    config::{Config, ConfigKey, ConfigLoadError, PinnedLocation, cached::ConfigCached, feature_flags::FeatureFlags},
     debug_bundle::{
         bundle_info::BundleInfo,
         create_debug_bundle,
@@ -198,16 +198,18 @@ impl VpnStatus {
 impl Manager {
     /// The constructed `Arc<Manager>` can not be dropped due to spawned tasks, which hold references.
     /// The `network_interface` watcher must keep receiving updates until dropped.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         config_dir: PathBuf,
         wg_key_store: WgKeyStore,
+        config_key: Option<ConfigKey>,
         user_agent: String,
         os_impl: Arc<impl Os>,
         network_interface: Receiver<Option<NetworkInterface>>,
         log_persistence: Option<LogPersistence>,
         force_init_inactive: bool,
     ) -> Result<Arc<Self>, ConfigLoadError> {
-        let client_state = ClientState::new(config_dir, wg_key_store, user_agent, force_init_inactive)?;
+        let client_state = ClientState::new(config_dir, wg_key_store, config_key, user_agent, force_init_inactive)?;
         let tunnel_state = TunnelState::new(client_state.clone(), os_impl.clone());
         let initial_status = Status::new(Uuid::new_v4(), VpnStatus::Disconnected {}, &client_state.borrow());
         let this = Arc::new(Self {
@@ -496,7 +498,17 @@ mod tests {
         save(dir.path(), config).unwrap();
         // A closed network interface channel only stops the task that follows it.
         let network_interface = channel(None).1;
-        let manager = Manager::new(dir.path().into(), WgKeyStore::None, "test".into(), os, network_interface, None, true).unwrap();
+        let manager = Manager::new(
+            dir.path().into(),
+            WgKeyStore::None,
+            None,
+            "test".into(),
+            os,
+            network_interface,
+            None,
+            true,
+        )
+        .unwrap();
         (manager, dir)
     }
 

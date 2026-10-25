@@ -19,10 +19,10 @@ object RustFfi {
      * Rust aborts the process if the config dir is not usable, so create it first.
      */
     @Synchronized
-    fun initialize(configDir: String, userAgent: String, wgSecretKey: ByteArray?, persistLogs: Boolean): Boolean {
+    fun initialize(configDir: String, userAgent: String, wgSecretKey: ByteArray?, configKey: ByteArray?, persistLogs: Boolean): Boolean {
         if (handle != null) return false
         Native.loadLibrary()
-        handle = Native.initialize(configDir, userAgent, wgSecretKey, persistLogs)
+        handle = Native.initialize(configDir, userAgent, wgSecretKey, configKey, persistLogs)
         return true
     }
 
