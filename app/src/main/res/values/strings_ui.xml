@@ -37,8 +37,6 @@
 
     <!-- Connect: control -->
     <string name="control_wait">Please wait</string>
-    <string name="control_always_on">Always-on</string>
-    <string name="always_on_notice">Android keeps Ombra connected (always-on VPN). To disconnect, turn always-on off in Android settings.</string>
     <string name="battery_hint">Android restricts the battery use of Ombra and can stop the VPN in the background. Set battery use to Unrestricted.</string>
     <string name="battery_hint_action">Open app settings</string>
 

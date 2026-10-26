@@ -65,10 +65,9 @@ class OmbraVpnService : VpnService(), Callbacks.NetworkConfigHandler {
             stopSelf(startId)
             return START_NOT_STICKY
         }
-        // A system start can mean that always-on or lockdown changed; a disconnect needs the current value.
+        // A system start can mean that always-on or lockdown changed.
         CoreHost.refreshSystemState()
-        val alwaysOn = CoreHost.systemState.value.alwaysOn == true
-        when (val start = ServicePolicy.start(action, inForeground, CoreHost.vpnWanted, alwaysOn)) {
+        when (val start = ServicePolicy.start(action, inForeground, CoreHost.vpnWanted)) {
             is ServicePolicy.Start.Connect -> connect(if (start.useStoredArgs) null else CoreHost.settingsStore.current.tunnelArgs())
             ServicePolicy.Start.Disconnect -> disconnect()
             ServicePolicy.Start.NeedConsent -> {

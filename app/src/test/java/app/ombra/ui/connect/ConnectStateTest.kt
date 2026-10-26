@@ -119,16 +119,6 @@ class ConnectStateTest {
     }
 
     @Test
-    fun alwaysOnBlocksOnlyDisconnectAndCancel() {
-        assertTrue(state(connected()).copy(alwaysOn = true).disconnectBlocked)
-        assertTrue(state(connecting()).copy(alwaysOn = true).disconnectBlocked)
-        assertTrue(state(connecting(reconnecting = true)).copy(alwaysOn = true).disconnectBlocked)
-        assertFalse(state(VpnStatus.Disconnected).copy(alwaysOn = true).disconnectBlocked, "connect stays possible")
-        assertFalse(state(null).copy(alwaysOn = true).disconnectBlocked)
-        assertFalse(state(connected()).disconnectBlocked)
-    }
-
-    @Test
     fun detailsLinkOnlyToAWebPageOfTheExitOperator() {
         val vpn = connected()
         val details = connectionDetails(vpn.copy(exit = vpn.exit.copy(providerUrl = "https://mullvad.net/servers")))

@@ -30,15 +30,14 @@ object ServicePolicy {
 
     /**
      * [inForeground] is false when startForeground failed, which for a VPN app means the consent
-     * is missing (VPN apps with consent may start it from the background). [alwaysOn] must be read
-     * just before: a notification or tile can offer Disconnect from a state that is no longer true.
+     * is missing (VPN apps with consent may start it from the background).
      */
-    fun start(action: String?, inForeground: Boolean, wanted: Boolean, alwaysOn: Boolean): Start = when (action) {
+    fun start(action: String?, inForeground: Boolean, wanted: Boolean): Start = when (action) {
         OmbraVpnService.ACTION_CONNECT -> connectOrConsent(inForeground, useStoredArgs = false)
         // Always-on start by the system.
         VpnService.SERVICE_INTERFACE -> connectOrConsent(inForeground, useStoredArgs = true)
-        // Under always-on the system owns the tunnel; nothing would bring it back after a disconnect.
-        OmbraVpnService.ACTION_DISCONNECT -> if (alwaysOn) Start.Ignore else Start.Disconnect
+        // Also under always-on: the user asked for it. Lockdown then blocks traffic until a connect.
+        OmbraVpnService.ACTION_DISCONNECT -> Start.Disconnect
         // Sticky restart after the process died; Rust starts inactive, so connect again if wanted.
         null -> if (wanted) connectOrConsent(inForeground, useStoredArgs = true) else Start.Stop
         else -> Start.Ignore

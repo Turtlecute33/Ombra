@@ -32,7 +32,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.clearAndSetSemantics
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -107,7 +106,7 @@ fun ConnectScreen(
                 look = lookOf(state),
                 actionLabel = stringResource(actionLabel(state)),
                 stateLabel = stringResource(titleOf(state)),
-                enabled = state.phase != ConnectPhase.Loading && state.phase != ConnectPhase.Disconnecting && !state.disconnectBlocked,
+                enabled = state.phase != ConnectPhase.Loading && state.phase != ConnectPhase.Disconnecting,
                 onClick = {
                     if (state.phase == ConnectPhase.Disconnected) {
                         connect()
@@ -124,16 +123,6 @@ fun ConnectScreen(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.clearAndSetSemantics {},
             )
-            if (state.disconnectBlocked) {
-                // Why the control does nothing: the VPN service refuses to disconnect under always-on.
-                Text(
-                    stringResource(R.string.always_on_notice),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.padding(top = Spacing.xs, start = Spacing.l, end = Spacing.l),
-                )
-            }
             Spacer(Modifier.height(Spacing.l))
             Messages(
                 state = state,
@@ -264,7 +253,7 @@ private fun lookOf(state: ConnectUiState): ControlLook = when (state.phase) {
     ConnectPhase.Disconnecting -> ControlLook.Working
 }
 
-private fun actionLabel(state: ConnectUiState): Int = if (state.disconnectBlocked) R.string.control_always_on else when (state.phase) {
+private fun actionLabel(state: ConnectUiState): Int = when (state.phase) {
     ConnectPhase.Disconnected -> R.string.action_connect
     ConnectPhase.Connecting, ConnectPhase.Reconnecting -> R.string.action_cancel
     ConnectPhase.Connected -> R.string.action_disconnect

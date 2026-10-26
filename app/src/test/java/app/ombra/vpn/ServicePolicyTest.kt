@@ -24,42 +24,36 @@ class ServicePolicyTest {
 
     @Test
     fun connectUsesTheSettingsArgs() {
-        assertEquals(Start.Connect(useStoredArgs = false), ServicePolicy.start(OmbraVpnService.ACTION_CONNECT, inForeground = true, wanted = false, alwaysOn = false))
+        assertEquals(Start.Connect(useStoredArgs = false), ServicePolicy.start(OmbraVpnService.ACTION_CONNECT, inForeground = true, wanted = false))
     }
 
     @Test
     fun alwaysOnStartKeepsTheStoredArgs() {
-        assertEquals(Start.Connect(useStoredArgs = true), ServicePolicy.start(VpnService.SERVICE_INTERFACE, inForeground = true, wanted = false, alwaysOn = false))
+        assertEquals(Start.Connect(useStoredArgs = true), ServicePolicy.start(VpnService.SERVICE_INTERFACE, inForeground = true, wanted = false))
     }
 
     @Test
     fun stickyRestartReconnectsOnlyWhenWanted() {
         // PackageReplacedReceiver's restore start uses this branch too (OmbraVpnService.restoreIntent has no action).
-        assertEquals(Start.Connect(useStoredArgs = true), ServicePolicy.start(null, inForeground = true, wanted = true, alwaysOn = false))
-        assertEquals(Start.Stop, ServicePolicy.start(null, inForeground = true, wanted = false, alwaysOn = false))
+        assertEquals(Start.Connect(useStoredArgs = true), ServicePolicy.start(null, inForeground = true, wanted = true))
+        assertEquals(Start.Stop, ServicePolicy.start(null, inForeground = true, wanted = false))
     }
 
     @Test
     fun connectWithoutForegroundNeedsConsent() {
-        assertEquals(Start.NeedConsent, ServicePolicy.start(OmbraVpnService.ACTION_CONNECT, inForeground = false, wanted = false, alwaysOn = false))
-        assertEquals(Start.NeedConsent, ServicePolicy.start(VpnService.SERVICE_INTERFACE, inForeground = false, wanted = true, alwaysOn = false))
-        assertEquals(Start.NeedConsent, ServicePolicy.start(null, inForeground = false, wanted = true, alwaysOn = false))
+        assertEquals(Start.NeedConsent, ServicePolicy.start(OmbraVpnService.ACTION_CONNECT, inForeground = false, wanted = false))
+        assertEquals(Start.NeedConsent, ServicePolicy.start(VpnService.SERVICE_INTERFACE, inForeground = false, wanted = true))
+        assertEquals(Start.NeedConsent, ServicePolicy.start(null, inForeground = false, wanted = true))
     }
 
     @Test
     fun disconnectNeedsNoForeground() {
-        assertEquals(Start.Disconnect, ServicePolicy.start(OmbraVpnService.ACTION_DISCONNECT, inForeground = false, wanted = true, alwaysOn = false))
-    }
-
-    @Test
-    fun disconnectUnderAlwaysOnIsIgnored() {
-        // The notification and the tile can still offer Disconnect from a stale state.
-        assertEquals(Start.Ignore, ServicePolicy.start(OmbraVpnService.ACTION_DISCONNECT, inForeground = true, wanted = true, alwaysOn = true))
+        assertEquals(Start.Disconnect, ServicePolicy.start(OmbraVpnService.ACTION_DISCONNECT, inForeground = false, wanted = true))
     }
 
     @Test
     fun unknownActionsAreIgnored() {
-        assertEquals(Start.Ignore, ServicePolicy.start("org.example.OTHER", inForeground = true, wanted = true, alwaysOn = false))
+        assertEquals(Start.Ignore, ServicePolicy.start("org.example.OTHER", inForeground = true, wanted = true))
     }
 
     @Test

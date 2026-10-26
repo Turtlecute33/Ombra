@@ -47,19 +47,7 @@ data class ConnectUiState(
     val accountInactive: Boolean = false,
     /** Only while connected. */
     val details: ConnectionDetails? = null,
-    /**
-     * Android's always-on VPN is set for Ombra. The VPN service then refuses to disconnect, so the
-     * UI offers no Disconnect: the user turns always-on off in Android settings first.
-     */
-    val alwaysOn: Boolean = false,
-) {
-    /** The control would disconnect or cancel, which always-on does not allow. */
-    val disconnectBlocked: Boolean
-        get() = alwaysOn && when (phase) {
-            ConnectPhase.Connecting, ConnectPhase.Reconnecting, ConnectPhase.Connected -> true
-            ConnectPhase.Loading, ConnectPhase.Disconnected, ConnectPhase.Disconnecting -> false
-        }
-}
+)
 
 /** The facts of a live tunnel, for the details sheet. Keys and addresses show in a mono font. */
 @Immutable

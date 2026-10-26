@@ -108,22 +108,6 @@ class ConnectViewModelTest {
     }
 
     @Test
-    fun alwaysOnFromTheVpnProcessBlocksDisconnect() = runTest(dispatcher) {
-        core.status.value = status(connected())
-        val vm = viewModel()
-        runCurrent()
-        assertEquals(false, vm.state.value.disconnectBlocked, "unknown is not on")
-
-        core.system.value = SystemState(alwaysOn = true, lockdown = false)
-        runCurrent()
-        assertTrue(vm.state.value.disconnectBlocked)
-
-        core.system.value = SystemState(alwaysOn = false, lockdown = false)
-        runCurrent()
-        assertEquals(false, vm.state.value.disconnectBlocked)
-    }
-
-    @Test
     fun fatalErrorsShowAtOnce() = runTest(dispatcher) {
         core.status.value = status(connecting(ConnectErrorCode.UdpHandshakeFailed))
         val vm = viewModel()

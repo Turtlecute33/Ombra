@@ -49,8 +49,7 @@ class ConnectViewModel(
     val state: StateFlow<ConnectUiState> =
         combine(core.status, editor.settings, lists, pending, shownError) { status, settings, (exits, relays), pending, error ->
             connectUiState(status, settings, exits, relays, pending, error)
-        }.combine(core.system) { state, system -> state.copy(alwaysOn = system?.alwaysOn == true) }
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MS), ConnectUiState())
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MS), ConnectUiState())
 
     /** Polls the core at 1 Hz while connected and while someone collects (the screen is visible). */
     val stats: StateFlow<LiveStats?> = core.status
