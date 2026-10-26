@@ -17,6 +17,8 @@
         </intent>
     </queries>
 
+    <!-- Memory tagging (MTE): async in release for the per-packet native path, sync in debug
+         (src/debug manifest). See docs/research/android-platform.md §6.6. -->
     <application
         android:allowBackup="false"
         android:dataExtractionRules="@xml/data_extraction_rules"
@@ -24,6 +26,7 @@
         android:fullBackupContent="false"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
+        android:memtagMode="async"
         android:networkSecurityConfig="@xml/network_security_config"
         android:supportsRtl="true"
         android:theme="@style/Theme.Ombra">
