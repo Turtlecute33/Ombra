@@ -163,7 +163,9 @@ pub fn create_debug_bundle(
     if cfg!(target_os = "android") {
         // This isn't guaranteed to work, but Android unfortunately doesn't
         // provide a proper API for this.
-        archive.add_cmd("logcat", "txt", diva::Command::parse("logcat -d"));
+        // Ombra: INFO and above for the Rust tag keeps the 1 Hz data path stats (DEBUG,
+        // `logging::DATAPATH_STATS_TARGET`) out of the bundle. Other tags keep all levels.
+        archive.add_cmd("logcat", "txt", diva::Command::parse("logcat -d ObscuraNative:I *:V"));
     }
     #[cfg(target_os = "android")]
     if let Some(json) = crate::android::process_exit_reasons_json() {

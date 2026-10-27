@@ -338,7 +338,8 @@ to first frame on a mid-range phone.
 
 Rust P4 (Stealth/QUIC path and shared data path), in this order:
 - A2: 1 Hz quinn path stats (rtt, cwnd, current_mtu, lost, black holes, probes, ack counts,
-  datagram send buffer space) at DEBUG level, logcat only, only with Diagnostics on.
+  datagram send buffer space) at DEBUG level, logcat only, only with Diagnostics on. The debug
+  bundle reads logcat with `ObscuraNative:I`, so it does not get them.
 - B1: MTU floor 1350 (`initial_mtu` + `min_mtu`) when the interface MTU (CLAT-aware) is >= 1378 and
   `forceSmallMtu` is off, with guard 1 (second relay race without the floor after 2 s) and guard 2
   (large liveness probe every 10th busy probe; 3 large lost while small ones return -> reconnect

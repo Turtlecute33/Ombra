@@ -76,7 +76,8 @@ fn build_log_roller(log_dir: &Utf8Path) -> anyhow::Result<(NonBlocking, LogPersi
 
 /// Target of the 1 Hz data path statistics (Ombra patch P4, A2 and C5). They are DEBUG events, so the live log shows
 /// them only when `init` gets `datapath_stats` (Android: Diagnostics on) or `RUST_LOG` asks for them. The log files
-/// never get them: a per-second trace of traffic volume does not belong on the device.
+/// and the logcat part of the debug bundle never get them: a per-second trace of traffic volume does not belong on
+/// the device.
 pub const DATAPATH_STATS_TARGET: &str = "ombra::datapath_stats";
 
 // `EnvFilter` doesn't impl `Clone`
