@@ -149,10 +149,18 @@ impl ClientState {
         self.config.api_url.clone().unwrap_or(DEFAULT_API_URL.to_string())
     }
 
+    /// The Obscura backup domain first, then the host of the user (OMBRA-SEC-007). The client accepts a certificate of
+    /// any of these hosts for every request, also to the primary host, so a user host must not replace the backup domain.
+    fn alternative_api_hosts(&self) -> Vec<String> {
+        let mut hosts = vec![DEFAULT_API_BACKUP_DOMAIN.to_owned()];
+        hosts.extend(self.config.api_host_alternate.clone().filter(|host| host != DEFAULT_API_BACKUP_DOMAIN));
+        hosts
+    }
+
     fn make_unauthenticated_api_client(&self) -> Result<Client<Unauthenticated>, ApiError> {
         let base_url = self.base_url();
         let network_interface = self.network_interface.clone();
-        let alternative_hosts = vec![self.config.api_host_alternate.clone().unwrap_or_else(|| DEFAULT_API_BACKUP_DOMAIN.into())];
+        let alternative_hosts = self.alternative_api_hosts();
         tracing::info!(
             message_id = "By9iMtd5",
             ?network_interface,
@@ -1204,6 +1212,18 @@ mod tests {
         let relay = RelaySelector::Country { country_code: CountryCode("DE".into()) };
         client_state.set_tunnel_target_state(Some(TunnelArgs { relay, mode: TunnelMode::TcpTls, ..Default::default() }), None);
         assert_ne!(target().tunnel_args, before.tunnel_args, "a relay change reconnects");
+    }
+
+    /// OMBRA-SEC-007: the host of the user comes after the Obscura backup domain and does not replace it.
+    #[test]
+    fn a_user_api_host_comes_after_the_backup_domain() {
+        let dir = tempdir().unwrap();
+        let client_state = client_state(dir.path());
+        assert_eq!(client_state.borrow().alternative_api_hosts(), [DEFAULT_API_BACKUP_DOMAIN]);
+        client_state.set_api_host_alternate(Some("api.example".into()));
+        assert_eq!(client_state.borrow().alternative_api_hosts(), [DEFAULT_API_BACKUP_DOMAIN, "api.example"]);
+        client_state.set_api_host_alternate(Some(DEFAULT_API_BACKUP_DOMAIN.into()));
+        assert_eq!(client_state.borrow().alternative_api_hosts(), [DEFAULT_API_BACKUP_DOMAIN]);
     }
 
     /// Ombra patch P4: the MTU hint of the OS side counts in the MTU floor decision, and another hint for the same

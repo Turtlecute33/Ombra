@@ -193,7 +193,7 @@
     <string name="advanced_sni">Relay SNI host</string>
     <string name="advanced_sni_detail">The name that the relay connection shows to the network</string>
     <string name="advanced_api_host">Backup API host</string>
-    <string name="advanced_api_host_detail">A second address for the Obscura API, for when the first one is blocked</string>
+    <string name="advanced_api_host_detail">An extra address for the Obscura API, after the Obscura backup address. It gets your account number and token, so enter only a host that Obscura publishes.</string>
     <string name="advanced_host_default">Default</string>
     <string name="advanced_host_invalid">Enter a host name, for example cdn.example.org</string>
     <string name="advanced_hosts_note">For networks that block Obscura. Leave empty for the default. The SNI host applies at the next connect, the API host at once.</string>
