@@ -85,6 +85,15 @@ android {
             // Store the .so uncompressed and page-aligned so it maps straight from the APK.
             useLegacyPackaging = false
         }
+        resources {
+            // Licence files also in the library folders (META-INF/androidx/...): the Licences screen shows the
+            // licence texts. The *.version files only tell each library version to a reader of the APK.
+            excludes += setOf(
+                "META-INF/versions/**", "META-INF/*.md", "META-INF/LICENSE*", "META-INF/NOTICE*",
+                "META-INF/**/LICENSE*", "META-INF/**/NOTICE*", "META-INF/*.version",
+                "DebugProbesKt.bin", "kotlin/**",
+            )
+        }
     }
 
     testOptions {
@@ -152,7 +161,6 @@ dependencies {
 
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.ui)
-    implementation(libs.compose.ui.tooling.preview)
     implementation(libs.compose.foundation)
     implementation(libs.compose.material3)
     implementation(libs.activity.compose)
@@ -161,7 +169,6 @@ dependencies {
     implementation(libs.lifecycle.viewmodel.navigation3)
     implementation(libs.navigation3.runtime)
     implementation(libs.navigation3.ui)
-    debugImplementation(libs.compose.ui.tooling)
 
     testImplementation(kotlin("test-junit"))
     testImplementation(libs.junit)
