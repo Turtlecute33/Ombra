@@ -388,7 +388,9 @@ Android side:
   false. Secrets only in `noBackupFilesDir`.
 - WireGuard secret key encrypted with an Android Keystore key (P0). Rust `config.json` (account number,
   token) is encrypted with a key that Android Keystore keeps (`ConfigKeyVault`, P13), in
-  `noBackupFilesDir` (credential-encrypted storage).
+  `noBackupFilesDir` (credential-encrypted storage). When the Keystore cannot store a new key,
+  `config.json` stays plain text, so that the VPN keeps working; Kotlin and Rust log it
+  (OMBRA-SEC-006).
 - `FLAG_SECURE` on onboarding and account screens, and an option for all screens.
   `setHideOverlayWindows(true)` (permission `HIDE_OVERLAY_WINDOWS`) on the activity.
 - No exported components except: the launcher activity, `OmbraVpnService` (protected by
