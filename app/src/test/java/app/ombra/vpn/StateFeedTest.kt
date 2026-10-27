@@ -103,7 +103,33 @@ class StateFeedTest {
 
         assertEquals(Settings(lanAccess = true), IpcJson.decodeFromString(Settings.serializer(), settingsPushes.last()))
         assertEquals(SystemState(lockdown = true), IpcJson.decodeFromString(SystemState.serializer(), systemPushes.last()))
-        assertEquals(2, settingsPushes.size)
-        assertEquals(2, systemPushes.size)
+        assertEquals(1, settingsPushes.size)
+        assertEquals(1, systemPushes.size)
+    }
+
+    @Test
+    fun theValueAtCollectionStartIsLeftToTheSnapshotAndNoLaterValueIsLost() = runTest {
+        status.value = Status(version = "v1")
+        exits.value = exitList("e1", "x1")
+        val changes = feed.changes()
+        val pushes = changes.mapValues { mutableListOf<String>() }
+        changes.forEach { (kind, values) -> backgroundScope.launch { values.toList(pushes.getValue(kind)) } }
+        runCurrent()
+        assertTrue(pushes.values.all { it.isEmpty() }, "the snapshot has the current values")
+        assertEquals(
+            listOf(StateKind.STATUS, StateKind.EXITS, StateKind.SETTINGS, StateKind.SYSTEM),
+            feed.snapshot().map { it.first },
+        )
+
+        // The relays were not known at the start: their first value is a change.
+        relays.value = CachedValue("r1", 1_700_000_000, listOf(relay))
+        exits.value = exitList("e2", "x1")
+        settings.value = Settings(lanAccess = true)
+        runCurrent()
+        assertEquals(1, pushes.getValue(StateKind.RELAYS).size)
+        assertEquals(1, pushes.getValue(StateKind.EXITS).size)
+        assertEquals(1, pushes.getValue(StateKind.SETTINGS).size)
+        assertEquals(0, pushes.getValue(StateKind.STATUS).size)
+        assertEquals(0, pushes.getValue(StateKind.SYSTEM).size)
     }
 }

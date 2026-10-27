@@ -88,6 +88,8 @@ class CoreService : Service() {
     }
 
     private fun broadcast(kind: Int, json: String) {
+        // No listener, no encoding: a new listener gets the current values from pushSnapshot.
+        if (listeners.registeredCallbackCount == 0) return
         val push = encode(kind, json) ?: return
         val count = listeners.beginBroadcast()
         try {

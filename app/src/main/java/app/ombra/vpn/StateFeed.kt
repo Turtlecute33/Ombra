@@ -12,6 +12,7 @@ import app.ombra.ipc.SystemState
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.distinctUntilChangedBy
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.KSerializer
@@ -29,13 +30,16 @@ class StateFeed(
     private val settings: StateFlow<Settings>,
     private val system: StateFlow<SystemState>,
 ) {
-    /** One flow of JSON per kind; each emits the current value first, then every change. */
+    /**
+     * One flow of JSON per kind: every change after the value that is current when the collection
+     * starts. [snapshot] gives that value to a new listener, so it is not encoded twice (OMBRA-PERF-004).
+     */
     fun changes(): Map<Int, Flow<String>> = mapOf(
-        StateKind.STATUS to status.filterNotNull().distinctUntilChangedBy { it.version }.map(::statusJson),
-        StateKind.EXITS to exits.filterNotNull().distinctUntilChangedBy { it.version }.map(::exitsJson),
-        StateKind.RELAYS to relays.filterNotNull().distinctUntilChangedBy { it.version }.map(::relaysJson),
-        StateKind.SETTINGS to settings.map(::settingsJson),
-        StateKind.SYSTEM to system.map(::systemJson),
+        StateKind.STATUS to status.distinctUntilChangedBy { it?.version }.drop(1).filterNotNull().map(::statusJson),
+        StateKind.EXITS to exits.distinctUntilChangedBy { it?.version }.drop(1).filterNotNull().map(::exitsJson),
+        StateKind.RELAYS to relays.distinctUntilChangedBy { it?.version }.drop(1).filterNotNull().map(::relaysJson),
+        StateKind.SETTINGS to settings.drop(1).map(::settingsJson),
+        StateKind.SYSTEM to system.drop(1).map(::systemJson),
     )
 
     /** The current value of every kind that has one, for a new listener. */
