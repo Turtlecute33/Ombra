@@ -21,9 +21,12 @@
     </queries>
 
     <!-- Memory tagging (MTE): async in release for the per-packet native path, sync in debug
-         (src/debug manifest). See docs/research/android-platform.md §6.6. -->
+         (src/debug manifest). See docs/research/android-platform.md §6.6.
+         allowCrossUidActivitySwitchFromBelow: an activity of another app below Ombra in a task
+         cannot start an activity over Ombra (OMBRA-SEC-008). -->
     <application
         android:allowBackup="false"
+        android:allowCrossUidActivitySwitchFromBelow="false"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:enableOnBackInvokedCallback="true"
         android:fullBackupContent="false"
