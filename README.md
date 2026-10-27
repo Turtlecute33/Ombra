@@ -35,7 +35,7 @@ Android 16 or newer (API 36), arm64.
 **Privacy**
 
 - No analytics, no crash reporting, no Google Play Services, no third-party SDKs. The app code makes
-  no network calls; only the Rust core talks to Obscura.
+  no network calls; the Rust core makes all of them (see [Network](#network)).
 - The WireGuard secret key is encrypted with an Android Keystore key (StrongBox when available) and
   never written to the config file. The config file, with the account number and the login token, is
   encrypted too.
@@ -47,6 +47,23 @@ Android 16 or newer (API 36), arm64.
   name of the API (in the DNS lookup and in TLS), and the API sees your IP address.
 
 The full list of patches to the Rust core is in [rust/UPSTREAM.md](rust/UPSTREAM.md).
+
+## Network
+
+Ombra connects only to these hosts:
+
+- The Obscura API, `v1.api.prod.obscura.net` (built-in first address `66.42.95.12`). When it cannot
+  be reached: the backup domain `crimsonlance.net`, then the backup API host that you set in Advanced.
+  Ombra calls the API when it starts, after a login, every 12 h, at each connect and for account
+  actions.
+- The entry relays from the Obscura relay list: the relay race and the tunnel. The exit gets your
+  traffic only through the relay.
+- Only for a debug bundle, after you agree on its page: DNS lookups and HTTPS requests to
+  `www.apple.com` and `google.com`, HTTPS requests to the Obscura API (also with `apple.com` and
+  `google.com` as the TLS name), and pings to `1.1.1.1`, `8.8.8.8`, `2606:4700:4700::1111` and
+  `2001:4860:4860::8888`.
+
+Links, for example the payment page, open in your browser.
 
 ## Results
 

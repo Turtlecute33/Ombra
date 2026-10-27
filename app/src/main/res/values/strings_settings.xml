@@ -208,7 +208,7 @@
     <!-- Debug bundle -->
     <string name="bundle_title">Debug bundle</string>
     <string name="bundle_intro">A debug bundle helps to find the cause of connection problems. Read what it does before you make one.</string>
-    <string name="bundle_fact_probes">It tests the network from this phone: it contacts apple.com, google.com and the Obscura API outside the VPN, so they see your real IP address.</string>
+    <string name="bundle_fact_probes">It tests the network from this phone: it contacts apple.com, google.com, the Obscura API and the DNS servers of Cloudflare and Google (1.1.1.1, 8.8.8.8) outside the VPN, so they see your real IP address.</string>
     <string name="bundle_fact_logs">It holds the logs of the VPN core, the Android log of Ombra (logcat) and the settings of the VPN core, with network details such as addresses and interfaces.</string>
     <string name="bundle_fact_private">It leaves out your account number and your private WireGuard key.</string>
     <string name="bundle_fact_share">The file stays on this phone. Ombra sends it nowhere: you choose where to share it.</string>

@@ -408,7 +408,9 @@ Android side:
   the first Show, Copy, Add time or final Delete of a visit. One prompt per visit; the visit ends when
   the screen stops. No prompt when the phone has no screen lock (`KeyguardManager.isDeviceSecure`).
   Onboarding shows the number of a new account with no prompt, so that the user can save it at once.
-- The debug bundle makes network probes and includes logcat: consent screen; delete old zips.
+- The debug bundle makes network probes and includes logcat: consent screen; delete old zips. The
+  consent text names the probe targets, and the README lists each host that Ombra contacts
+  (OMBRA-PRIV-007).
 - Permissions: `INTERNET`, `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_SYSTEM_EXEMPTED`,
   `POST_NOTIFICATIONS`, `ACCESS_NETWORK_STATE`, `HIDE_OVERLAY_WINDOWS`, `USE_BIOMETRIC` (the
   account screen prompt). Nothing else unless a task justifies it in its report.

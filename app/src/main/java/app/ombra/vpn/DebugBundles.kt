@@ -7,7 +7,8 @@ import java.io.File
 /**
  * Debug bundles. Rust writes the zip into `<cacheDir>/debug-archives`, which the FileProvider
  * (authority `${applicationId}.files`, res/xml/file_paths.xml) shares. A bundle holds logs and
- * network probe results, so only the newest one is kept.
+ * network probe results, so only the newest one is kept. The probes (Rust `debug_bundle/`) contact the
+ * hosts that `bundle_fact_probes` and the README name: change them together (OMBRA-PRIV-007).
  */
 class DebugBundles(
     private val cacheDir: File,
