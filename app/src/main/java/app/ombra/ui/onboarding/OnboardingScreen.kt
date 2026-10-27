@@ -337,6 +337,12 @@ private fun NewAccount(vm: OnboardingViewModel) {
                     enabled = saved,
                     modifier = Modifier.fillMaxWidth().widthIn(max = Spacing.maxContentWidth).heightIn(min = 56.dp),
                 ) { Text(stringResource(R.string.new_account_add_time)) }
+                Text(
+                    stringResource(R.string.account_add_time_note),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                )
             }
         },
     ) {

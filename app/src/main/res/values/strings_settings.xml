@@ -81,7 +81,7 @@
     <string name="account_check">Check now</string>
     <string name="account_checking">Checking</string>
     <string name="account_add_time">Add time</string>
-    <string name="account_add_time_note">Opens obscura.com in your browser. The link holds your account number, so the browser history keeps it.</string>
+    <string name="account_add_time_note">Opens obscura.com in your browser. The link holds your account number, so the browser history keeps it, and a browser with sync can send it to its sync service.</string>
     <string name="account_number">Account number</string>
     <string name="account_number_masked">Account number, hidden</string>
     <string name="account_number_note">Anyone with this number can use your account. A copy leaves the clipboard after a minute.</string>
