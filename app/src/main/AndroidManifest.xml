@@ -85,6 +85,12 @@
                 android:resource="@xml/file_paths" />
         </provider>
 
+        <!-- Clears a copied account number after a minute, also when Android stopped the UI process.
+             Only the inexact alarm of this app sends to it. -->
+        <receiver
+            android:name=".ui.components.ClipClearReceiver"
+            android:exported="false" />
+
         <!-- Everything below runs in :vpn, the only process that loads the Rust core. -->
         <service
             android:name=".vpn.CoreService"

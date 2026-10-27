@@ -1,9 +1,13 @@
 package app.ombra.ui.components
 
+import android.app.AlarmManager
+import android.app.PendingIntent
+import android.content.BroadcastReceiver
 import android.content.ClipData
 import android.content.ClipDescription
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
 import android.os.Handler
 import android.os.Looper
 import android.os.PersistableBundle
@@ -38,6 +42,10 @@ object SensitiveClip {
         val appContext = context.applicationContext
         main.removeCallbacksAndMessages(null)
         main.postDelayed({ clearIfDue(appContext) }, CLEAR_AFTER_MS)
+        // The handler does not run when Android stops the process within the minute; the alarm
+        // starts the process again. Inexact, so it needs no permission.
+        val at = copiedAt ?: return
+        appContext.alarms().set(AlarmManager.ELAPSED_REALTIME, dueAt, clearAlarm(appContext, at))
     }
 
     /**
@@ -47,14 +55,48 @@ object SensitiveClip {
     fun clearIfDue(context: Context) {
         val at = copiedAt ?: return
         if (SystemClock.elapsedRealtime() < dueAt) return
+        clear(context, at)
+        copiedAt = null
+        // A late alarm must not clear a clip that the user copies after this.
+        val appContext = context.applicationContext
+        appContext.alarms().cancel(clearAlarm(appContext, at))
+    }
+
+    /** The alarm of [copy]: clears the clip copied at [at], also in a new process. */
+    internal fun clearFromAlarm(context: Context, at: Long) {
+        clear(context, at)
+        if (copiedAt == at) {
+            copiedAt = null
+            main.removeCallbacksAndMessages(null)
+        }
+    }
+
+    private fun clear(context: Context, at: Long) {
         val clipboard = context.clipboard()
         // Null in the background (or when the clipboard is empty).
         val current = clipboard.primaryClipDescription
         if (current == null || current.timestamp == at) clipboard.clearPrimaryClip()
-        copiedAt = null
     }
+
+    private fun clearAlarm(context: Context, at: Long): PendingIntent = PendingIntent.getBroadcast(
+        context,
+        0,
+        Intent(context, ClipClearReceiver::class.java).putExtra(EXTRA_AT, at),
+        PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+    )
 
     private fun Context.clipboard(): ClipboardManager = getSystemService(ClipboardManager::class.java)
 
+    private fun Context.alarms(): AlarmManager = getSystemService(AlarmManager::class.java)
+
+    internal const val EXTRA_AT = "at"
     private const val CLEAR_AFTER_MS = 60_000L
+}
+
+/** Target of the clear alarm of [SensitiveClip]. Not exported: only the alarm of this app sends it. */
+class ClipClearReceiver : BroadcastReceiver() {
+    override fun onReceive(context: Context, intent: Intent) {
+        val at = intent.getLongExtra(SensitiveClip.EXTRA_AT, 0L)
+        if (at != 0L) SensitiveClip.clearFromAlarm(context, at)
+    }
 }
