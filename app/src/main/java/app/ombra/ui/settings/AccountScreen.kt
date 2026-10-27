@@ -1,5 +1,6 @@
 package app.ombra.ui.settings
 
+import android.content.Context
 import android.text.format.DateUtils
 import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
@@ -47,6 +48,7 @@ import app.ombra.ui.components.RequestErrorMessage
 import app.ombra.ui.components.RowGroup
 import app.ombra.ui.components.SectionHeader
 import app.ombra.ui.components.copySensitive
+import app.ombra.ui.confirmScreenLock
 import app.ombra.ui.openLink
 import app.ombra.ui.theme.OmbraTextStyles
 import app.ombra.ui.theme.OmbraTheme
@@ -66,12 +68,13 @@ fun AccountScreen(core: CoreSource, onBack: () -> Unit) {
     val account by vm.account.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val clipLabel = stringResource(R.string.new_account_clip_label)
+    val lockTitle = stringResource(R.string.account_lock_title)
     var confirmLogout by rememberSaveable { mutableStateOf(false) }
     var deleteStep by rememberSaveable { mutableStateOf(DeleteStep.None) }
     RequestErrorMessage(vm.errorCode, vm::errorShown)
 
     // The number leaves memory when the app goes to the background; the payment page counts too.
-    LifecycleStartEffect(vm) { onStopOrDispose { vm.hideNumber() } }
+    LifecycleStartEffect(vm) { onStopOrDispose { vm.endVisit() } }
     LifecycleResumeEffect(vm) {
         vm.onResumed()
         onPauseOrDispose {}
@@ -81,7 +84,9 @@ fun AccountScreen(core: CoreSource, onBack: () -> Unit) {
         StatusCard(account, refreshing = vm.refreshing, onRefresh = vm::refresh)
         Column(Modifier.padding(horizontal = Spacing.screen, vertical = Spacing.l)) {
             Button(
-                onClick = { vm.addTime { number -> openLink(context, ObscuraLinks.payment(number)) } },
+                onClick = {
+                    vm.afterScreenLock(context, lockTitle) { vm.addTime { number -> openLink(context, ObscuraLinks.payment(number)) } }
+                },
                 enabled = !vm.busy,
                 modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
             ) {
@@ -100,11 +105,13 @@ fun AccountScreen(core: CoreSource, onBack: () -> Unit) {
         NumberCard(
             number = vm.number,
             busy = vm.busy,
-            onReveal = vm::reveal,
+            onReveal = { vm.afterScreenLock(context, lockTitle, vm::reveal) },
             onHide = vm::hideNumber,
             onCopy = { number ->
-                copySensitive(context, clipLabel, number)
-                Toast.makeText(context, R.string.copied, Toast.LENGTH_SHORT).show()
+                vm.afterScreenLock(context, lockTitle) {
+                    copySensitive(context, clipLabel, number)
+                    Toast.makeText(context, R.string.copied, Toast.LENGTH_SHORT).show()
+                }
             },
         )
         GroupNote(stringResource(R.string.account_number_note))
@@ -155,11 +162,23 @@ fun AccountScreen(core: CoreSource, onBack: () -> Unit) {
             confirmLabel = stringResource(R.string.account_delete_action),
             onConfirm = {
                 deleteStep = DeleteStep.None
-                vm.deleteAccount()
+                vm.afterScreenLock(context, lockTitle, vm::deleteAccount)
             },
             onDismiss = { deleteStep = DeleteStep.None },
             destructive = true,
         )
+    }
+}
+
+/** Runs [action] after the screen lock, with at most one prompt in each visit (DESIGN §10). */
+private fun AccountViewModel.afterScreenLock(context: Context, title: String, action: () -> Unit) {
+    if (unlocked) {
+        action()
+    } else {
+        confirmScreenLock(context, title) {
+            onUnlocked()
+            action()
+        }
     }
 }
 

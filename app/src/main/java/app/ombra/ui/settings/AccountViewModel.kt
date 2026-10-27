@@ -46,10 +46,27 @@ class AccountViewModel(
     /** The payment page is open in the browser; the account info is refreshed on return. */
     private var paymentOpen = false
 
+    /**
+     * The user confirmed the screen lock in this visit (DESIGN §10): one prompt before the first
+     * reveal, copy, payment link or deletion. The visit ends when the screen stops ([endVisit]).
+     */
+    var unlocked = false
+        private set
+
+    fun onUnlocked() {
+        unlocked = true
+    }
+
     fun reveal() = launchRequest { number = requireNumber() }
 
     fun hideNumber() {
         number = null
+    }
+
+    /** The screen stopped (the app went to the background, or the payment page opened). */
+    fun endVisit() {
+        hideNumber()
+        unlocked = false
     }
 
     /**

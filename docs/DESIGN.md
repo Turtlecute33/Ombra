@@ -397,10 +397,14 @@ Android side:
 - R8: strip `android.util.Log` calls below WARN in release (`-assumenosideeffects`); never log
   Status, AccountInfo, account numbers, tokens, keys or the `login` command.
 - Clipboard: sensitive flag; clear after 60 s when possible.
+- Account screen: the platform `BiometricPrompt` (`BIOMETRIC_STRONG or DEVICE_CREDENTIAL`) before
+  the first Show, Copy, Add time or final Delete of a visit. One prompt per visit; the visit ends when
+  the screen stops. No prompt when the phone has no screen lock (`KeyguardManager.isDeviceSecure`).
+  Onboarding shows the number of a new account with no prompt, so that the user can save it at once.
 - The debug bundle makes network probes and includes logcat: consent screen; delete old zips.
 - Permissions: `INTERNET`, `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_SYSTEM_EXEMPTED`,
-  `POST_NOTIFICATIONS`, `ACCESS_NETWORK_STATE`, `HIDE_OVERLAY_WINDOWS`. Nothing else unless a task
-  justifies it in its report.
+  `POST_NOTIFICATIONS`, `ACCESS_NETWORK_STATE`, `HIDE_OVERLAY_WINDOWS`, `USE_BIOMETRIC` (the
+  account screen prompt). Nothing else unless a task justifies it in its report.
 
 ## 11. Testing
 

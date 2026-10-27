@@ -18,7 +18,9 @@ import org.junit.After
 import org.junit.Before
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class AccountViewModelTest {
@@ -45,6 +47,23 @@ class AccountViewModelTest {
         assertEquals(number, vm.number)
         vm.hideNumber()
         assertNull(vm.number)
+    }
+
+    @Test
+    fun oneScreenLockCheckLastsUntilTheScreenStops() = runTest(dispatcher) {
+        val vm = AccountViewModel(core)
+        assertFalse(vm.unlocked)
+        vm.onUnlocked()
+        vm.reveal()
+        advanceUntilIdle()
+        vm.hideNumber()
+        assertTrue(vm.unlocked, "Hide does not end the visit")
+
+        vm.reveal()
+        advanceUntilIdle()
+        vm.endVisit()
+        assertNull(vm.number)
+        assertFalse(vm.unlocked)
     }
 
     @Test

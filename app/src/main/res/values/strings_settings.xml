@@ -87,6 +87,7 @@
     <string name="account_number_note">Anyone with this number can use your account. A copy leaves the clipboard after a minute.</string>
     <string name="account_reveal">Show</string>
     <string name="account_hide">Hide</string>
+    <string name="account_lock_title">Confirm with your screen lock</string>
     <string name="account_this_device">On this device</string>
     <string name="account_delete">Delete account</string>
     <string name="account_delete_detail">Removes the account from Obscura for ever</string>
