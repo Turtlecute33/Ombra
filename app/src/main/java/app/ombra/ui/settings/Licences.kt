@@ -29,6 +29,9 @@ enum class Licence(@StringRes val title: Int, val source: LicenceSource, val ref
 
     /** Written by the Rust build; absent from builds without it. */
     RustCrates(R.string.licence_rust_crates, LicenceSource.Asset("licenses/rust-crates.txt"), reflowed = false),
+
+    /** Made by scripts/rust-notices.zsh: the notices and texts that MIT, BSD, ISC and other crates ask for. */
+    RustNotices(R.string.licence_rust_notices, LicenceSource.Asset("licenses/rust-notices.txt"), reflowed = false),
 }
 
 /** A part of Ombra and its licence. [name] is a proper name and stays untranslated. */
@@ -39,6 +42,7 @@ val COMPONENTS: List<Component> = listOf(
     Component("Ombra", R.string.component_ombra, Licence.Gpl3),
     Component("Obscura VPN client", R.string.component_obscura, Licence.Gpl3),
     Component("Rust crates", R.string.component_rust_crates, Licence.RustCrates),
+    Component("Rust crate notices", R.string.component_rust_notices, Licence.RustNotices),
     Component("Jetpack Compose", R.string.component_compose, Licence.Apache2),
     Component("AndroidX", R.string.component_androidx, Licence.Apache2),
     Component("Kotlin", R.string.component_kotlin, Licence.Apache2),

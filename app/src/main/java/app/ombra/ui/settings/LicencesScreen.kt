@@ -29,8 +29,10 @@ import app.ombra.ui.theme.Spacing
 @Composable
 fun LicencesScreen(onBack: () -> Unit, onOpen: (Licence) -> Unit) {
     val context = LocalContext.current
-    // The crate list exists only in builds that ran the Rust licence step.
-    val components by produceState(COMPONENTS.filter { it.licence != Licence.RustCrates }) {
+    // The Rust crate files are assets that a build can lack: show them once hasLicence finds them.
+    val components by produceState(
+        COMPONENTS.filter { it.licence != Licence.RustCrates && it.licence != Licence.RustNotices },
+    ) {
         value = COMPONENTS.filter { context.hasLicence(it.licence) }
     }
     SettingsPage(stringResource(R.string.about_licences), onBack) {

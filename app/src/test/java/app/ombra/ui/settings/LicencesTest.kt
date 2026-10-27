@@ -28,6 +28,24 @@ class LicencesTest {
     }
 
     @Test
+    fun everyCrateWithNoApacheOptionHasItsLicenceText() {
+        val crates = File("src/main/assets/licenses/rust-crates.txt").readText()
+            .substringAfter("name version — license — repository\n")
+            .lines()
+            .filter(String::isNotBlank)
+            .map { it.split(" — ") }
+        val headings = paragraphs(File("src/main/assets/licenses/rust-notices.txt").readText(), reflow = true)
+            .filter { it.startsWith("==>") }
+            .joinToString(" ")
+        val missing = crates
+            .filter { "Apache-2.0" !in it[1] && "GPL-3.0" !in it[1] }
+            .map { it[0] }
+            .filter { " $it (" !in headings }
+        assertTrue(crates.size > 200, "read the crate list")
+        assertEquals(emptyList(), missing)
+    }
+
+    @Test
     fun everyComponentHasALicence() {
         assertEquals(COMPONENTS.size, COMPONENTS.map { it.name }.toSet().size)
         assertTrue(COMPONENTS.any { it.licence == Licence.Gpl3 })

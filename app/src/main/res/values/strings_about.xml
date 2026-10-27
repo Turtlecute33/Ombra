@@ -42,9 +42,11 @@
     <string name="licence_apache">Apache License 2.0</string>
     <string name="licence_ofl">SIL Open Font License 1.1</string>
     <string name="licence_rust_crates">Rust crate licences</string>
+    <string name="licence_rust_notices">Rust crate licence texts</string>
     <string name="component_ombra">This app</string>
     <string name="component_obscura">VPN core by Sovereign Engineering Inc.</string>
     <string name="component_rust_crates">Libraries of the VPN core</string>
+    <string name="component_rust_notices">Copyright notices of the VPN core libraries</string>
     <string name="component_compose">UI, Foundation and Material 3, by Google</string>
     <string name="component_androidx">Core, Activity, Annotation, Lifecycle, Navigation 3 and ProfileInstaller, by Google</string>
     <string name="component_kotlin">Standard library, kotlinx.coroutines and kotlinx.serialization, by JetBrains</string>

@@ -103,4 +103,6 @@ about 10.9 MB of it.
 GPL-3.0-only ([LICENSE](LICENSE)). The Rust core comes from
 [obscuravpn-client](https://github.com/Sovereign-Engineering/obscuravpn-client) by Sovereign
 Engineering (GPL-3.0-only with a linking exception). Fonts: Manrope and JetBrains Mono (OFL-1.1).
+The list of the Rust crates and their licence texts are in
+[app/src/main/assets/licenses](app/src/main/assets/licenses) and on the Licences screen of the app.
 "Obscura" is a trademark of its owner; Ombra uses its own name and icon.

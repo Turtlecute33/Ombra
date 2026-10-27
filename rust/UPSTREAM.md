@@ -102,6 +102,8 @@ This is our reading of the texts, not legal advice.
 - `app/src/main/assets/licenses/rust-crates.txt` (Licences screen) lists the 267 crates in the Android library:
   `cargo metadata --format-version 1 --locked --offline --filter-platform aarch64-linux-android`, the normal
   dependencies of the library, checked against `cargo tree -e normal,no-proc-macro --target aarch64-linux-android`.
-  Make it again after a dependency change.
+  Make it again after a dependency change. Then run `scripts/rust-notices.zsh`: it writes
+  `app/src/main/assets/licenses/rust-notices.txt`, the copyright notices and licence texts of the crates
+  that need more than the Apache-2.0 text (OMBRA-UX-002). It stops when the crates differ from the list.
 - The name "Obscura" and its artwork are trademarks. The code licence does not cover them. Ombra
   uses its own name and icon.

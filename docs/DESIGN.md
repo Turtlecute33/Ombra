@@ -71,6 +71,7 @@ Ombra/
   rust/UPSTREAM.md             Upstream commit, how to update, list of our patches
   scripts/build-rust.zsh       Builds libobscuravpn_client.so into app/src/main/jniLibs/arm64-v8a
   scripts/make-release-key.sh  Same pattern as Varco
+  scripts/rust-notices.zsh     Writes the licence texts of the Rust crates into app/src/main/assets/licenses
   docs/DESIGN.md, docs/research/
   LICENSE (GPL-3.0 text), README.md
 ```
