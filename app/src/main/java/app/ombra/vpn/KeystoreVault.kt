@@ -3,7 +3,6 @@ package app.ombra.vpn
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyPermanentlyInvalidatedException
 import android.security.keystore.KeyProperties
-import android.security.keystore.StrongBoxUnavailableException
 import android.system.ErrnoException
 import android.system.Os
 import android.system.OsConstants
@@ -13,6 +12,7 @@ import java.io.FileOutputStream
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import java.security.KeyStore
+import java.security.ProviderException
 import java.security.SecureRandom
 import javax.crypto.AEADBadTagException
 import javax.crypto.Cipher
@@ -103,9 +103,11 @@ open class KeystoreVault(
         return (keyStore.getEntry(keyAlias, null) as? KeyStore.SecretKeyEntry)?.secretKey
     }
 
+    /** Any StrongBox fault (StrongBoxUnavailableException is one ProviderException) falls back to the TEE. */
     private fun createKey(): SecretKey = try {
         generateKey(strongBox = true)
-    } catch (e: StrongBoxUnavailableException) {
+    } catch (e: ProviderException) {
+        Log.w(logTag, "StrongBox key failed: ${e.javaClass.simpleName}")
         generateKey(strongBox = false)
     }
 
