@@ -9,6 +9,7 @@
 | Vendor commit here | `rust: vendor upstream obscuravpn-client rustlib at 85ef7e2` (files unchanged, no `target/`) |
 | `rust/LICENSE` | upstream `LICENSE` at the same commit. `about.toml` reads it as `../LICENSE`; its sha256 `5e8dcaf1…` is the `clarify` checksum there. |
 | Git dependencies (`Cargo.lock`) | `obscuravpn-api` `e94483e7`, `neptun` (boringtun fork) `ff3b5555`, `reqwest` fork `87cc6fc6`, `rust-dispatch` `13447cd7` (Apple only) |
+| crates.io dependencies (`Cargo.lock`) | upstream, plus the security updates in "Crate updates in `Cargo.lock`" below |
 
 Build: `scripts/build-rust.zsh` (NDK 28.0.13004108, API 35, arm64-v8a). It never downloads: it fails
 when the pinned toolchain, a target or a crate is missing (run `cargo fetch --locked` once when online).
@@ -44,6 +45,29 @@ Speed: `PERF.md` compares upstream with these patches and Speed mode (loopback b
 The Kotlin side of the JNI contract is in `docs/DESIGN.md` section 4, with the 5-argument
 `setNetworkInterface` of P4 (row above). `scripts/build-rust.zsh` fails
 when the exported symbols of the `.so` are not exactly `JNI_OnLoad` plus the 7 `Native` methods.
+
+## Crate updates in `Cargo.lock`
+
+Security updates of crates.io crates on top of the upstream `Cargo.lock`. One commit for each row.
+The commit changes only `Cargo.lock` in `rust/obscura-core`, so step 2 of "How to update upstream"
+exports it with the patches.
+
+| Date | Change | Reason |
+|---|---|---|
+| 2026-10-28 | `webpki-roots` 1.0.0 -> 1.0.11, `rustls-webpki` 0.103.3 -> 0.103.16, `rustls` 0.23.28 -> 0.23.46. Cargo also changed: `aws-lc-rs` 1.15.4 -> 1.18.2, `aws-lc-sys` 0.37.1 -> 0.46.0, `regex` 1.10.4 -> 1.13.1 with `regex-automata` 0.4.18 and `regex-syntax` 0.8.11 (`aws-lc-fips-sys` 0.14.3 needs `regex` 1.11.1 or later). Not in the Android library: `bindgen` 0.73.2 (replaces 0.69.5 and 0.72.1), `aws-lc-fips-sys` 0.13.7 -> 0.14.3, `shlex` 2.0.1, the `windows-sys` version of 4 crates. | RUSTSEC-2026-0381 (`webpki-roots` has the distrusted root "emSign ECC Root CA - G3"), RUSTSEC-2026-0382 (`rustls-webpki` accepts the distrusted emSign intermediate keys, which are public). The API TLS of the core trusts only these compiled-in roots, not the Android CA store. RUSTSEC-2026-0349 and RUSTSEC-2026-0285 (`rustls`). Report OMBRA-SEC-001, OMBRA-SEC-005. |
+
+Commands, in `rust/obscura-core`, online once:
+
+```zsh
+cargo update -p webpki-roots --precise 1.0.11
+cargo update -p rustls-webpki --precise 0.103.16
+cargo update -p rustls --precise 0.23.46
+cargo fetch --locked
+```
+
+After a re-vendor, `git am -3` can stop on `Cargo.lock`. Then put back the file of the last applied
+commit (`git checkout HEAD -- rust/obscura-core/Cargo.lock`), do the commands again for each crate
+that upstream has at a lower version, `git add` the file and run `git am --continue`.
 
 ## How to update upstream
 
