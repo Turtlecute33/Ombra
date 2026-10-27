@@ -32,11 +32,16 @@ class RequestHandler(
     private val debugBundles: DebugBundles,
     private val allowRawCommands: Boolean,
     private val deleteWgKey: () -> Unit = {},
+    private val forgetLogs: () -> Unit = {},
 ) {
-    /** After a logout: the last debug bundle holds logs of the account's use, and the key was the account's. */
+    /**
+     * After a logout: the last debug bundle and the persisted Rust logs hold logs of the account's
+     * use, and the key was the account's.
+     */
     private fun forgetAccountFiles() {
         debugBundles.deleteAll()
         deleteWgKey()
+        forgetLogs()
     }
 
     suspend fun handle(requestJson: String): Reply {

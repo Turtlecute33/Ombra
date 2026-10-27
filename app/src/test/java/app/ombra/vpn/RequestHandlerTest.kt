@@ -39,6 +39,7 @@ class RequestHandlerTest {
         allowRawCommands: Boolean = false,
         settingsDir: File = tmp.root,
         deleteWgKey: () -> Unit = {},
+        forgetLogs: () -> Unit = {},
     ): RequestHandler {
         val controller = CoreController(
             core,
@@ -48,7 +49,7 @@ class RequestHandlerTest {
             testScheduler.timeSource,
         )
         val bundles = DebugBundles(File(tmp.root, "cache"), BundleInfo("1.0", 37), core)
-        return RequestHandler(controller, core, bundles, allowRawCommands, deleteWgKey)
+        return RequestHandler(controller, core, bundles, allowRawCommands, deleteWgKey, forgetLogs)
     }
 
     private suspend fun RequestHandler.send(request: Request): Reply = handle(IpcJson.encodeToString(Request.serializer(), request))
@@ -170,6 +171,22 @@ class RequestHandlerTest {
         assertEquals(Reply.ok("null"), handler(deleteWgKey = { keyDeletes++ }).send(Request.Logout))
         assertFalse(bundle.exists())
         assertEquals(1, keyDeletes)
+    }
+
+    @Test
+    fun aLogoutOrDeletionThatWorkedForgetsTheRustLogs() = runTest {
+        var logForgets = 0
+        core.failures[ManagerCmd.Logout::class] = "notLoggedIn"
+        core.failures[ManagerCmd.ApiDeleteAccount::class] = "notLoggedIn"
+        assertEquals(Reply.error("notLoggedIn"), handler(forgetLogs = { logForgets++ }).send(Request.Logout))
+        assertEquals(Reply.error("notLoggedIn"), handler(forgetLogs = { logForgets++ }).send(Request.DeleteAccount))
+        assertEquals(0, logForgets)
+
+        core.failures.clear()
+        assertEquals(Reply.ok("null"), handler(forgetLogs = { logForgets++ }).send(Request.Logout))
+        assertEquals(1, logForgets)
+        assertEquals(Reply.ok("null"), handler(forgetLogs = { logForgets++ }).send(Request.DeleteAccount))
+        assertEquals(2, logForgets)
     }
 
     @Test

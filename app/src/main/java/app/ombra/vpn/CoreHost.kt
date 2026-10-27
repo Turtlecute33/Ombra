@@ -130,6 +130,11 @@ object CoreHost {
             debugBundles = DebugBundles(appContext.cacheDir, bundleInfo, CoreBridge),
             allowRawCommands = BuildConfig.DEBUG,
             deleteWgKey = wgKeyVault::delete,
+            // As when Diagnostics goes off: the log starts again only in a new process.
+            forgetLogs = {
+                if (isReady) RustFfi.flushAndStopPersistedLog()
+                deleteRustLogs(dir)
+            },
         )
         feed = StateFeed(controller.status, controller.exits, controller.relays, settingsStore.settings, systemState)
         statusView = combine(status, wanted.flow, vpnService, settingsStore.settings, systemState) { current, isWanted, service, settings, system ->
