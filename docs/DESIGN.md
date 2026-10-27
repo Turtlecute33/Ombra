@@ -72,6 +72,7 @@ Ombra/
   scripts/build-rust.zsh       Builds libobscuravpn_client.so into app/src/main/jniLibs/arm64-v8a
   scripts/make-release-key.sh  Same pattern as Varco
   scripts/rust-notices.zsh     Writes the licence texts of the Rust crates into app/src/main/assets/licenses
+  scripts/audit-rust.zsh       Checks the Rust crates against RustSec (cargo-deny), before each release tag
   docs/DESIGN.md, docs/research/
   LICENSE (GPL-3.0 text), README.md
 ```
@@ -404,6 +405,9 @@ Android side:
   text tell the user (OMBRA-PRIV-003).
 - R8: strip `android.util.Log` calls below WARN in release (`-assumenosideeffects`); never log
   Status, AccountInfo, account numbers, tokens, keys or the `login` command.
+- Rust crates: `scripts/audit-rust.zsh` checks them against RustSec before each release tag. The API
+  TLS of the core trusts only the roots in `webpki-roots`, so an old root list stays in the app until
+  a crate update (OMBRA-SEC-001, OMBRA-SEC-005).
 - Clipboard: sensitive flag; clear after 60 s when possible.
 - Account screen: the platform `BiometricPrompt` (`BIOMETRIC_STRONG or DEVICE_CREDENTIAL`) before
   the first Show, Copy, Add time or final Delete of a visit. One prompt per visit; the visit ends when

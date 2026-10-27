@@ -98,6 +98,9 @@ builds are signed with the key that `scripts/make-release-key.sh` makes; without
 `assembleRelease` makes an unsigned APK. The release APK is about 14.6 MB (estimate); the Rust core is
 about 10.9 MB of it.
 
+Before each release tag, run `scripts/audit-rust.zsh`. It checks the Rust crates of the Android build
+against the RustSec advisory database (needs `cargo-deny`).
+
 ## Licence
 
 GPL-3.0-only ([LICENSE](LICENSE)). The Rust core comes from

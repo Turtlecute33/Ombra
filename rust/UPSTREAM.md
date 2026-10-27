@@ -100,7 +100,8 @@ Then:
 
 1. Look for new hard-coded Java names: `grep -rn 'net/obscura\|net_obscura' rust/obscura-core/src`.
 2. Run `cargo test --locked --offline` and `cargo ndk -t arm64-v8a -P 35 clippy --lib --locked --offline` in
-   `rust/obscura-core`, then `scripts/build-rust.zsh`.
+   `rust/obscura-core`, then `scripts/build-rust.zsh`. Run `scripts/audit-rust.zsh` (RustSec advisories,
+   also before each release tag).
 3. Check the licence text and the git dependency revisions in `Cargo.lock` again.
 4. Update the commit and the table at the top of this file.
 
