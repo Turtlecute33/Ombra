@@ -69,7 +69,8 @@ data class TunPlan(
 
         /**
          * Rust never calls protect(): its sockets leave the tunnel only because our own package is
-         * outside it. So "all except" always lists us and "only" never does.
+         * outside it. So "all except" always lists us and "only" never does. API requests thus go
+         * outside too, with the API name in DNS and TLS, also in Stealth mode (OMBRA-PRIV-003).
          */
         fun appScope(settings: Settings, ownPackage: String, isInstalled: (String) -> Boolean): AppScope {
             val listed = (settings.splitApps - ownPackage).sorted()

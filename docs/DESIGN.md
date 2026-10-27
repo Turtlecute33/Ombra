@@ -397,6 +397,10 @@ Android side:
 - No exported components except: the launcher activity, `OmbraVpnService` (protected by
   `BIND_VPN_SERVICE`), `QuickTileService` (protected by `BIND_QUICK_SETTINGS_TILE`).
 - Network security config: cleartext off, system CAs only (Kotlin makes no network calls anyway).
+- API requests go outside the tunnel: Rust never calls `protect()`, so our package stays outside the
+  TUN (section 7). Each request uses the physical network, with the API name in the TLS SNI and in
+  a DNS lookup when the cached address is old (P3), also in Stealth mode. The README and the Stealth
+  text tell the user (OMBRA-PRIV-003).
 - R8: strip `android.util.Log` calls below WARN in release (`-assumenosideeffects`); never log
   Status, AccountInfo, account numbers, tokens, keys or the `login` command.
 - Clipboard: sensitive flag; clear after 60 s when possible.

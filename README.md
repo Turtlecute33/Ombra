@@ -43,6 +43,8 @@ Android 16 or newer (API 36), arm64.
   sessions only while it sees the same key.
 - No log files and almost nothing in logcat unless you turn on Diagnostics.
 - Screenshots blocked on the account screens; a copied account number is cleared after 60 s.
+- Ombra talks to the Obscura API outside the tunnel, also in Stealth mode. The network can see the
+  name of the API (in the DNS lookup and in TLS), and the API sees your IP address.
 
 The full list of patches to the Rust core is in [rust/UPSTREAM.md](rust/UPSTREAM.md).
 

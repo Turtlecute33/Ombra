@@ -99,7 +99,7 @@
 
     <!-- Connection -->
     <string name="connection_protocol">Protocol</string>
-    <string name="connection_stealth_detail">WireGuard inside QUIC. Looks like web traffic and passes most firewalls, but is slower than Speed.</string>
+    <string name="connection_stealth_detail">WireGuard inside QUIC. Looks like web traffic and passes most firewalls, but is slower than Speed. Ombra talks to the Obscura API outside the tunnel, so the network can see the API name.</string>
     <string name="connection_speed_detail">Plain WireGuard over UDP. The fastest, but networks can see and block it.</string>
     <string name="connection_tcp_detail">For networks that block UDP. The slowest: use it only when the other two fail.</string>
     <string name="connection_protocol_note">A change while connected reconnects at once.</string>
