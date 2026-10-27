@@ -120,9 +120,10 @@ class TunPlanTest {
     }
 
     @Test
-    fun includeModeListsOnlyTheInstalledAppsAndNeverOurPackage() {
+    fun includeModeListsEveryChosenAppAndNeverOurPackage() {
+        // "org.gone" can be installed but hidden from Ombra; system_server skips it if it is not installed.
         val settings = Settings(splitMode = SplitMode.Include, splitApps = setOf("org.mail", "org.gone", own, "org.browser"))
-        assertEquals(AppScope.Only(listOf("org.browser", "org.mail")), plan(settings = settings).apps)
+        assertEquals(AppScope.Only(listOf("org.browser", "org.gone", "org.mail")), plan(settings = settings).apps)
     }
 
     @Test

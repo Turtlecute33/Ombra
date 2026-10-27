@@ -30,9 +30,9 @@ data class TunPlan(
         /**
          * [isUsableDns] accepts what VpnService.Builder.addDnsServer accepts: an IP literal (never
          * resolve names) that is not loopback or any-local. One entry that the Builder refuses
-         * fails every TUN build. [isInstalled] filters out packages that are not on the device (any
-         * more): the system ignores them, so an allow-list of only such packages would leave every
-         * app outside the tunnel.
+         * fails every TUN build. [isInstalled] is false for packages that are not on the device (any
+         * more) and for those that Ombra cannot see: the system ignores uninstalled ones, so an
+         * allow-list of only such packages would leave every app outside the tunnel.
          */
         fun of(
             config: OsNetworkConfig,
@@ -72,12 +72,14 @@ data class TunPlan(
          * outside it. So "all except" always lists us and "only" never does.
          */
         fun appScope(settings: Settings, ownPackage: String, isInstalled: (String) -> Boolean): AppScope {
-            val chosen = (settings.splitApps - ownPackage).filter(isInstalled).sorted()
+            val listed = (settings.splitApps - ownPackage).sorted()
+            val installed = listed.filter(isInstalled)
             return when (settings.splitMode) {
                 SplitMode.Off -> AppScope.AllExcept(listOf(ownPackage))
-                SplitMode.Exclude -> AppScope.AllExcept(listOf(ownPackage) + chosen)
-                // With no chosen app left, protect every app rather than none.
-                SplitMode.Include -> if (chosen.isEmpty()) AppScope.AllExcept(listOf(ownPackage)) else AppScope.Only(chosen)
+                SplitMode.Exclude -> AppScope.AllExcept(listOf(ownPackage) + installed)
+                // With no chosen app left, protect every app rather than none. system_server resolves
+                // the allowed packages itself and skips uninstalled ones, so a hidden app stays inside.
+                SplitMode.Include -> if (installed.isEmpty()) AppScope.AllExcept(listOf(ownPackage)) else AppScope.Only(listed)
             }
         }
 

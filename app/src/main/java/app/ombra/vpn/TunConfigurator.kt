@@ -55,16 +55,28 @@ class TunConfigurator(
         underlyingNetwork()?.let { builder.setUnderlyingNetworks(arrayOf(it)) }
         when (val apps = plan.apps) {
             is AppScope.AllExcept -> apps.packages.forEach { builder.addDisallowedApplication(it) }
-            is AppScope.Only -> apps.packages.forEach { builder.addAllowedApplication(it) }
+            is AppScope.Only -> apps.packages.forEach { allow(builder, it) }
         }
         return builder
+    }
+
+    /** Today the Builder does not check visibility; if a platform does, one package must not fail establish(). */
+    private fun allow(builder: VpnService.Builder, packageName: String) {
+        try {
+            builder.addAllowedApplication(packageName)
+        } catch (e: PackageManager.NameNotFoundException) {
+            Log.w(TAG, "allowed app skipped: ${e.javaClass.simpleName}")
+        }
     }
 
     /** The check of VpnService.Builder.addDnsServer, which throws "Bad address" otherwise. Never resolves names. */
     private fun isUsableDns(value: String): Boolean =
         InetAddresses.isNumericAddress(value) && InetAddresses.parseNumericAddress(value).let { !it.isLoopbackAddress && !it.isAnyLocalAddress }
 
-    /** Only apps visible to us count; the split-tunnel list offers launcher apps, which are. */
+    /**
+     * False for an app that is not installed, and also for one that Ombra cannot see (package
+     * visibility), for example a chosen app that an update left without a launcher activity.
+     */
     private fun isInstalled(packageName: String): Boolean = try {
         packageManager.getApplicationInfo(packageName, PackageManager.ApplicationInfoFlags.of(0))
         true
