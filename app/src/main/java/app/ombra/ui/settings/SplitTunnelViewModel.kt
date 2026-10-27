@@ -24,21 +24,27 @@ import kotlinx.coroutines.launch
 data class AppRow(val packageName: String, val label: String?, val selected: Boolean)
 
 /**
- * The rows of the picker. Chosen apps come first, so the list shows at a glance what the split
- * tunnel affects; a chosen app that is gone stays until the user removes it. System apps show only
- * with [showSystem] (or when chosen). [query] matches the label or the package name, case and
- * accents ignored.
+ * The rows of the picker. The apps in [first] (the chosen ones) come first, so the list shows at a
+ * glance what the split tunnel affects; [selected] sets the checkboxes. A chosen app that is gone
+ * stays until the user removes it. System apps show only with [showSystem] (or when first).
+ * [query] matches the label or the package name, case and accents ignored.
  */
-fun appRows(installed: List<InstalledApp>, selected: Set<String>, query: String, showSystem: Boolean): List<AppRow> {
+fun appRows(
+    installed: List<InstalledApp>,
+    selected: Set<String>,
+    query: String,
+    showSystem: Boolean,
+    first: Set<String> = selected,
+): List<AppRow> {
     val key = searchKey(query.trim())
     val matches = { label: String?, packageName: String ->
         key.isEmpty() || (label != null && key in searchKey(label)) || key in packageName.lowercase()
     }
     val known = installed.associateBy { it.packageName }
-    val chosen = installed.filter { it.packageName in selected }.map { AppRow(it.packageName, it.label, true) } +
-        selected.filter { it !in known }.sorted().map { AppRow(it, null, true) }
-    val others = installed.filter { it.packageName !in selected && (showSystem || !it.isSystem) }
-        .map { AppRow(it.packageName, it.label, false) }
+    val chosen = installed.filter { it.packageName in first }.map { AppRow(it.packageName, it.label, it.packageName in selected) } +
+        (first + selected).filter { it !in known }.sorted().map { AppRow(it, null, it in selected) }
+    val others = installed.filter { it.packageName !in first && (showSystem || !it.isSystem) }
+        .map { AppRow(it.packageName, it.label, it.packageName in selected) }
     return (chosen + others).filter { matches(it.label, it.packageName) }
 }
 
@@ -63,9 +69,20 @@ class SplitTunnelViewModel(
     var showSystem by mutableStateOf(false)
         private set
 
+    /**
+     * The choice that orders the rows, with the list, search and system switch that it is for. It is
+     * taken again only when one of them changes, so a tap changes only its checkbox and no row moves
+     * under the finger (OMBRA-UX-003). Only the combine below reads and writes it.
+     */
+    private var order: Pair<Any, Set<String>>? = null
+
     /** Null while the app list loads. */
     val rows: StateFlow<List<AppRow>?> = combine(installed, selected, queryState, showSystemState) { apps, chosen, query, system ->
-        apps?.let { appRows(it, chosen, query, system) }
+        apps?.let {
+            val key = Triple(it, query, system)
+            val first = order?.takeIf { (orderKey, _) -> orderKey == key }?.second ?: chosen.also { order = key to chosen }
+            appRows(it, chosen, query, system, first)
+        }
     }.flowOn(compute)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MS), null)
 

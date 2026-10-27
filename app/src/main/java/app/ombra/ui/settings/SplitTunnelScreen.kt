@@ -62,6 +62,7 @@ import app.ombra.ui.components.SubScreen
 import app.ombra.ui.components.SwitchRow
 import app.ombra.ui.theme.OmbraTheme
 import app.ombra.ui.theme.Spacing
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.map
 
 /**
@@ -75,7 +76,8 @@ fun SplitTunnelScreen(core: CoreSource, editor: SettingsEditor, onBack: () -> Un
     val context = LocalContext.current
     val apps = remember { InstalledApps(context.applicationContext) }
     val picker = viewModel {
-        SplitTunnelViewModel(selected = editor.settings.map { it?.splitApps.orEmpty() }, loadApps = apps::launchable)
+        // Not before the settings are known: the first choice orders the rows.
+        SplitTunnelViewModel(selected = editor.settings.filterNotNull().map { it.splitApps }, loadApps = apps::launchable)
     }
     val rows by picker.rows.collectAsStateWithLifecycle()
     val reducedMotion = OmbraTheme.reducedMotion

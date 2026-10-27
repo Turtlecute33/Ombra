@@ -84,4 +84,29 @@ class SplitTunnelTest {
         assertEquals(4, vm.rows.value?.size)
         assertEquals(1, loads)
     }
+
+    @Test
+    fun aTapChangesOnlyTheCheckboxUntilTheSearchChanges() = runTest(dispatcher) {
+        val selected = MutableStateFlow(setOf("org.example.maps"))
+        val vm = SplitTunnelViewModel(selected, loadApps = { apps }, compute = dispatcher)
+        backgroundScope.launch { vm.rows.collect {} }
+        advanceUntilIdle()
+        val order = listOf("org.example.maps", "org.example.bank", "org.example.cafe")
+        assertEquals(order, vm.rows.value?.map { it.packageName })
+
+        // A tap on the last row, then on the first one.
+        selected.value = setOf("org.example.maps", "org.example.cafe")
+        runCurrent()
+        assertEquals(order, vm.rows.value?.map { it.packageName })
+        assertEquals(listOf(true, false, true), vm.rows.value?.map { it.selected })
+        selected.value = setOf("org.example.cafe")
+        runCurrent()
+        assertEquals(order, vm.rows.value?.map { it.packageName })
+        assertEquals(listOf(false, false, true), vm.rows.value?.map { it.selected })
+
+        // A new search puts the chosen apps first again.
+        vm.updateQuery("a")
+        runCurrent()
+        assertEquals(listOf("org.example.cafe", "org.example.bank", "org.example.maps"), vm.rows.value?.map { it.packageName })
+    }
 }
