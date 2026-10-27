@@ -11,7 +11,7 @@ import android.content.pm.PackageManager
 import app.ombra.R
 import app.ombra.ui.MainActivity
 
-/** The foreground notification of OmbraVpnService and the "needs your action" alert. */
+/** The foreground notification of OmbraVpnService and the "needs your action" alerts. */
 object VpnNotifications {
     const val STATUS_ID = 1
     private const val ALERT_ID = 2
@@ -71,10 +71,15 @@ object VpnNotifications {
     }
 
     /** Shown when a connect needs VPN consent again. Tapping it asks for consent in the app. */
-    fun showPermissionNeeded(context: Context) {
+    fun showPermissionNeeded(context: Context) = showAlert(context, R.string.notification_vpn_permission)
+
+    /** Shown when a start that asks for a tunnel finds no core. Tapping it connects again from the app. */
+    fun showCannotStart(context: Context) = showAlert(context, R.string.notification_cannot_start)
+
+    private fun showAlert(context: Context, text: Int) {
         if (!canNotify(context)) return
         val notification = base(context, CHANNEL_ALERTS, R.string.app_name)
-            .setContentText(context.getString(R.string.notification_vpn_permission))
+            .setContentText(context.getString(text))
             .setContentIntent(openApp(context, OmbraVpnService.ACTION_CONNECT))
             .setAutoCancel(true)
             .build()

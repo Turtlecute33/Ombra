@@ -61,7 +61,13 @@ class OmbraVpnService : VpnService(), Callbacks.NetworkConfigHandler {
         val action = intent?.action
         if (ServicePolicy.needsForeground(action) && !inForeground) inForeground = enterForeground()
         if (!CoreHost.isReady) {
+            // A Keystore failure at an earlier start may have passed (OMBRA-SEC-004).
+            CoreHost.init(applicationContext)
+            if (CoreHost.isReady) networkMonitor.start()
+        }
+        if (!CoreHost.isReady) {
             Log.e(TAG, "Rust core unavailable: ${CoreHost.initError}")
+            if (ServicePolicy.wantsTunnel(ServicePolicy.start(action, inForeground, CoreHost.vpnWanted))) VpnNotifications.showCannotStart(this)
             stopSelf(startId)
             return START_NOT_STICKY
         }

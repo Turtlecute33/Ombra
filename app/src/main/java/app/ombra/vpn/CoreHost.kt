@@ -40,6 +40,7 @@ import java.util.concurrent.Executors
 /**
  * Owner of the Rust core in the :vpn process. [init] loads and initializes Rust once and starts the
  * [CoreController]; every :vpn component calls it in onCreate and then uses the members below.
+ * After a Keystore failure that may pass, the next [init] tries Rust again (OMBRA-SEC-004).
  */
 object CoreHost {
     private const val TAG = "OmbraCoreHost"
@@ -77,6 +78,9 @@ object CoreHost {
     private lateinit var wanted: VpnWanted
     private var initialized = false
 
+    /** The last Rust init stopped at the config key, before Rust started, so a later [init] may try again. */
+    private var keystoreFailed = false
+
     private val systemStateFlow = MutableStateFlow(SystemState())
 
     /** Android-side facts for the UI. OmbraVpnService fills in the VPN and network part. */
@@ -89,7 +93,7 @@ object CoreHost {
     lateinit var statusView: StateFlow<StatusView>
         private set
 
-    /** True once Rust is initialized; false forever in this process if [initError] is set. */
+    /** True once Rust is initialized. False while [initError] is set; only a Keystore failure gets a new try. */
     @Volatile
     var isReady: Boolean = false
         private set
@@ -115,7 +119,10 @@ object CoreHost {
     /** Idempotent. Call on the main thread from any :vpn component's onCreate. */
     @Synchronized
     fun init(context: Context) {
-        if (initialized) return
+        if (initialized) {
+            if (ServicePolicy.retryInit(isReady, RustFfi.isInitialized, keystoreFailed)) startRust(appContext.noBackupFilesDir)
+            return
+        }
         initialized = true
         appContext = context.applicationContext
         val dir = appContext.noBackupFilesDir
@@ -144,20 +151,23 @@ object CoreHost {
         scope.launch { statusView.collect { QuickTileService.requestUpdate(appContext) } }
         refreshSystemState()
         Callbacks.setHostHandler(hostHandler)
+        startRust(dir)
+    }
 
+    private fun startRust(dir: File) {
         val diagnostics = settingsStore.current.diagnostics
         // Logs that an earlier process wrote before the user turned diagnostics off.
         if (!diagnostics) deleteRustLogs(dir)
-        if (initializeRust(dir, diagnostics)) {
-            isReady = true
-            Log.i(TAG, "Rust core initialized")
-            controller.start()
-            scope.launch {
-                // Off stops the log now; on needs a new process (Rust cannot start it again).
-                settingsStore.settings.map { it.diagnostics }.distinctUntilChanged().drop(1).filter { !it }.collect {
-                    RustFfi.flushAndStopPersistedLog()
-                    deleteRustLogs(dir)
-                }
+        if (!initializeRust(dir, diagnostics)) return
+        isReady = true
+        initError = null
+        Log.i(TAG, "Rust core initialized")
+        controller.start()
+        scope.launch {
+            // Off stops the log now; on needs a new process (Rust cannot start it again).
+            settingsStore.settings.map { it.diagnostics }.distinctUntilChanged().drop(1).filter { !it }.collect {
+                RustFfi.flushAndStopPersistedLog()
+                deleteRustLogs(dir)
             }
         }
     }
@@ -199,11 +209,17 @@ object CoreHost {
     }
 
     private fun initializeRust(dir: File, diagnostics: Boolean): Boolean = try {
+        keystoreFailed = false
         // Rust aborts the process when the config dir is missing.
         val configDir = File(dir, "core").apply { mkdirs() }
         Os.setenv("RUST_LOG", if (diagnostics) DIAGNOSTICS_RUST_LOG else QUIET_RUST_LOG, true)
         // Throws when the Keystore fails in a way that may pass: no start this time, and the config stays.
-        val configKey = configKeyVault.loadOrCreate()
+        val configKey = try {
+            configKeyVault.loadOrCreate()
+        } catch (e: IllegalStateException) {
+            keystoreFailed = true
+            throw e
+        }
         val secret = wgKeyVault.load()
         try {
             RustFfi.initialize(configDir.absolutePath, "Ombra-Android/${BuildConfig.VERSION_NAME}", secret, configKey, diagnostics)

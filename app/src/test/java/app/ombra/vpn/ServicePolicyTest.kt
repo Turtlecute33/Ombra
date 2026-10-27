@@ -66,6 +66,25 @@ class ServicePolicyTest {
     }
 
     @Test
+    fun initIsTriedAgainOnlyAfterAKeystoreFailure() {
+        assertTrue(ServicePolicy.retryInit(ready = false, rustInitialized = false, keystoreFailed = true))
+        // A missing library or a Rust error does not pass.
+        assertFalse(ServicePolicy.retryInit(ready = false, rustInitialized = false, keystoreFailed = false))
+        // Never a second Rust initialize.
+        assertFalse(ServicePolicy.retryInit(ready = false, rustInitialized = true, keystoreFailed = true))
+        assertFalse(ServicePolicy.retryInit(ready = true, rustInitialized = true, keystoreFailed = false))
+    }
+
+    @Test
+    fun onlyAStartThatAsksForATunnelGetsTheCannotStartAlert() {
+        assertTrue(ServicePolicy.wantsTunnel(Start.Connect(useStoredArgs = true)))
+        assertTrue(ServicePolicy.wantsTunnel(Start.NeedConsent))
+        assertFalse(ServicePolicy.wantsTunnel(Start.Disconnect))
+        assertFalse(ServicePolicy.wantsTunnel(Start.Stop))
+        assertFalse(ServicePolicy.wantsTunnel(Start.Ignore))
+    }
+
+    @Test
     fun tileConnectsDisconnectsOrOpensTheApp() {
         assertEquals(TileAction.Connect, ServicePolicy.tileAction(StatusView(Phase.NotProtected)))
         assertEquals(TileAction.Disconnect, ServicePolicy.tileAction(StatusView(Phase.Protected, canDisconnect = true)))

@@ -43,6 +43,20 @@ object ServicePolicy {
         else -> Start.Ignore
     }
 
+    /**
+     * A start that asks for a tunnel. When the core cannot start, the user gets an alert for it, so
+     * that an always-on user knows that the VPN does not protect them (OMBRA-SEC-004).
+     */
+    fun wantsTunnel(start: Start): Boolean = start is Start.Connect || start == Start.NeedConsent
+
+    /**
+     * A new Rust init only after a Keystore failure that may pass (OMBRA-SEC-004): the config key is
+     * read before Rust starts. Never after a missing library or a Rust error, and never a second
+     * initialize of Rust.
+     */
+    fun retryInit(ready: Boolean, rustInitialized: Boolean, keystoreFailed: Boolean): Boolean =
+        keystoreFailed && !ready && !rustInitialized
+
     /** The service goes once the tunnel is down and nobody wants it. A null status is not known yet. */
     fun shouldStop(status: Status?, wanted: Boolean): Boolean = !wanted && status?.vpnStatus is VpnStatus.Disconnected
 

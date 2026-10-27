@@ -14,6 +14,7 @@
     <string name="notification_channel_alerts">VPN alerts</string>
     <string name="notification_channel_alerts_description">Problems that need your action</string>
     <string name="notification_vpn_permission">Tap to allow Ombra to set up the VPN</string>
+    <string name="notification_cannot_start">Ombra cannot start. Tap to try again</string>
     <string name="state_protected">Protected</string>
     <string name="state_connecting">Connecting</string>
     <string name="state_not_protected">Not protected</string>
