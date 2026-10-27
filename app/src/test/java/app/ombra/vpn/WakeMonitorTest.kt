@@ -18,4 +18,12 @@ class WakeMonitorTest {
         assertTrue(WakeMonitor.isWake(PowerManager.ACTION_DEVICE_IDLE_MODE_CHANGED, deviceIdle = false))
         assertFalse(WakeMonitor.isWake(PowerManager.ACTION_DEVICE_IDLE_MODE_CHANGED, deviceIdle = true))
     }
+
+    @Test
+    fun screenOnAndUnlockRenderTheTileAgainButOnlyScreenOnWakesRust() {
+        assertTrue(WakeMonitor.isLockChange(Intent.ACTION_SCREEN_ON))
+        assertTrue(WakeMonitor.isLockChange(Intent.ACTION_USER_PRESENT))
+        assertFalse(WakeMonitor.isLockChange(PowerManager.ACTION_DEVICE_IDLE_MODE_CHANGED))
+        assertFalse(WakeMonitor.isWake(Intent.ACTION_USER_PRESENT, deviceIdle = false))
+    }
 }

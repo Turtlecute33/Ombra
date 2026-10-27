@@ -42,7 +42,7 @@ class OmbraVpnService : VpnService(), Callbacks.NetworkConfigHandler {
         CoreHost.init(applicationContext)
         VpnNotifications.createChannels(this)
         networkMonitor = NetworkMonitor(this)
-        wakeMonitor = WakeMonitor(this) {
+        wakeMonitor = WakeMonitor(this, { QuickTileService.requestUpdate(this) }) {
             RustFfi.wake()
             // Always-on can change in Settings without a start of this service.
             CoreHost.refreshSystemState()
