@@ -17,6 +17,8 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonObjectBuilder
+import kotlinx.serialization.json.add
+import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import org.junit.Rule
@@ -133,13 +135,57 @@ class CoreControllerTest {
         core.sent.clear()
 
         controller.updateSettings(patch { put("splitMode", "exclude") })
+        advanceTimeBy(CoreController.SPLIT_TUN_REFRESH_DELAY)
+        runCurrent()
         assertEquals(listOf<ManagerCmd>(ManagerCmd.RefreshOsNetworkConfig), core.sent)
 
         core.setStatus(VpnStatus.Disconnected)
         runCurrent()
         core.sent.clear()
         controller.updateSettings(patch { put("splitMode", "include") })
+        advanceTimeBy(CoreController.SPLIT_TUN_REFRESH_DELAY)
+        runCurrent()
         assertEquals(emptyList(), core.sent)
+    }
+
+    @Test
+    fun quickSplitTunnelChangesGiveOneTunRebuildAfterTheLast() = runTest {
+        val controller = controller()
+        controller.start()
+        core.setStatus(VpnStatus.Connecting(TunnelArgs()))
+        runCurrent()
+        core.sent.clear()
+
+        controller.updateSettings(patch { put("splitMode", "exclude") })
+        for (i in 1..5) {
+            advanceTimeBy(1.seconds)
+            controller.updateSettings(patch { put("splitApps", buildJsonArray { (1..i).forEach { add("org.example.app$it") } }) })
+        }
+        advanceTimeBy(1.seconds)
+        runCurrent()
+        assertEquals(emptyList(), core.sent, "no rebuild while the changes come")
+
+        advanceTimeBy(CoreController.SPLIT_TUN_REFRESH_DELAY)
+        runCurrent()
+        assertEquals(listOf<ManagerCmd>(ManagerCmd.RefreshOsNetworkConfig), core.sent)
+        assertEquals(5, store.current.splitApps.size, "each change is stored at once")
+    }
+
+    @Test
+    fun customDnsChangeRebuildsTheTunAtOnceAndTakesThePendingRebuild() = runTest {
+        val controller = controller()
+        controller.start()
+        core.setStatus(VpnStatus.Connecting(TunnelArgs()))
+        runCurrent()
+        core.sent.clear()
+
+        controller.updateSettings(patch { put("splitMode", "exclude") })
+        controller.updateSettings(patch { put("customDns", buildJsonArray { add("192.0.2.53") }) })
+        assertEquals(listOf<ManagerCmd>(ManagerCmd.RefreshOsNetworkConfig), core.sent)
+
+        advanceTimeBy(CoreController.SPLIT_TUN_REFRESH_DELAY)
+        runCurrent()
+        assertEquals(listOf<ManagerCmd>(ManagerCmd.RefreshOsNetworkConfig), core.sent, "the DNS rebuild has the split change")
     }
 
     // ---- account -------------------------------------------------------------------------------

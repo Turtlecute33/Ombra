@@ -15,6 +15,7 @@ import app.ombra.ipc.IpcError
 import app.ombra.ipc.Settings
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
@@ -64,6 +65,9 @@ class CoreController(
     @Volatile
     private var lastAccountRefresh: TimeMark? = null
 
+    /** The split-tunnel TUN rebuild that waits for more changes. Only under [settingsMutex]. */
+    private var tunRefresh: Job? = null
+
     /** Applies the settings and starts the long-polls and the periodic refresh. Later calls do nothing. */
     fun start() {
         if (!started.compareAndSet(false, true)) return
@@ -85,7 +89,20 @@ class CoreController(
         val before = settingsStore.current
         val after = settingsStore.update(patch)
         send(SettingsSync.changes(before, after))
-        if (SettingsSync.tunChanged(before, after)) refreshTun()
+        if (SettingsSync.tunChanged(before, after)) {
+            // A rebuild reads all current settings, so one is enough.
+            tunRefresh?.cancel()
+            // Android updates DNS in place, but a new app list replaces the VPN network and every app
+            // loses its connections: quick split-tunnel taps give one rebuild (OMBRA-PERF-003).
+            if (before.customDns != after.customDns) {
+                refreshTun()
+            } else {
+                tunRefresh = scope.launch {
+                    delay(SPLIT_TUN_REFRESH_DELAY)
+                    refreshTun()
+                }
+            }
+        }
         after
     }
 
@@ -253,5 +270,8 @@ class CoreController(
         /** Rust retries a connect about every second; an expired account refreshes at most this often. */
         val EXPIRED_REFRESH_GAP = 1.minutes
         private val POLL_RETRY_DELAY = 2.seconds
+
+        /** The time after the last split-tunnel change until the TUN rebuild. */
+        val SPLIT_TUN_REFRESH_DELAY = 1.5.seconds
     }
 }
