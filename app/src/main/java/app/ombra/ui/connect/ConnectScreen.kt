@@ -100,7 +100,7 @@ fun ConnectScreen(
         ) {
             Brand()
             Spacer(Modifier.height(Spacing.l))
-            Header(state)
+            Header(state, lockdown = system?.lockdown == true)
             Spacer(Modifier.height(Spacing.s))
             ConnectControl(
                 look = lookOf(state),
@@ -183,7 +183,7 @@ private fun Brand() {
 }
 
 @Composable
-private fun Header(state: ConnectUiState) {
+private fun Header(state: ConnectUiState, lockdown: Boolean) {
     val error = state.error
     when {
         error?.isFatal == true -> StatusHeader(
@@ -199,7 +199,7 @@ private fun Header(state: ConnectUiState) {
         )
         else -> StatusHeader(
             title = stringResource(titleOf(state)),
-            subtitle = stringResource(detailOf(state.phase)),
+            subtitle = stringResource(detailOf(state.phase, lockdown)),
             tone = if (state.phase == ConnectPhase.Connected) StatusTone.Positive else StatusTone.Neutral,
         )
     }
@@ -269,9 +269,10 @@ private fun titleOf(state: ConnectUiState): Int = when (state.phase) {
     ConnectPhase.Disconnecting -> R.string.status_disconnecting
 }
 
-private fun detailOf(phase: ConnectPhase): Int = when (phase) {
+/** [lockdown]: "Block connections without VPN" is on, so while off Android blocks all traffic. */
+private fun detailOf(phase: ConnectPhase, lockdown: Boolean): Int = when (phase) {
     ConnectPhase.Loading -> R.string.status_loading_detail
-    ConnectPhase.Disconnected -> R.string.status_off_detail
+    ConnectPhase.Disconnected -> if (lockdown) R.string.status_off_lockdown_detail else R.string.status_off_detail
     ConnectPhase.Connecting -> R.string.status_connecting_detail
     ConnectPhase.Reconnecting -> R.string.status_reconnecting_detail
     ConnectPhase.Connected -> R.string.status_on_detail
