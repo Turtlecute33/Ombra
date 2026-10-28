@@ -95,7 +95,7 @@ JAVA_HOME=/opt/homebrew/opt/openjdk@21 ./gradlew :app:assembleDebug :app:testDeb
 
 Gradle builds the Rust core with `scripts/build-rust.zsh` (offline, 16 KB pages, stripped). Release
 builds are signed with the key that `scripts/make-release-key.sh` makes; without it,
-`assembleRelease` makes an unsigned APK. The release APK is about 14.6 MB (estimate); the Rust core is
+`assembleRelease` makes an unsigned APK. The release APK is about 14.1 MB (estimate); the Rust core is
 about 10.9 MB of it.
 
 Before each release tag, run `scripts/audit-rust.zsh`. It checks the Rust crates of the Android build
