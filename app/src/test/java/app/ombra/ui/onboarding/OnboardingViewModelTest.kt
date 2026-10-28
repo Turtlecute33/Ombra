@@ -22,6 +22,7 @@ import org.junit.Before
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 // The core is a fake: nothing here reaches Obscura.
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -110,13 +111,25 @@ class OnboardingViewModelTest {
 
     @Test
     fun createShowsTheNewNumber() = runTest(dispatcher) {
-        core.answers[Request.CreateAccount] = jsonString(number)
+        core.answers[Request.CreateAccount(referral = true)] = jsonString(number)
         val vm = viewModel()
         vm.open(OnboardingStep.Create)
         vm.create()
         core.status.value = newAccount
         runCurrent()
         assertEquals(listOf<OnboardingStep>(OnboardingStep.NewAccount), vm.steps)
+        assertEquals(number, vm.newNumber)
+    }
+
+    @Test
+    fun theReferralSwitchGoesIntoTheCreateRequest() = runTest(dispatcher) {
+        core.answers[Request.CreateAccount(referral = false)] = jsonString(number)
+        val vm = viewModel()
+        vm.open(OnboardingStep.Create)
+        vm.useReferral = false
+        vm.create()
+        runCurrent()
+        assertTrue(Request.CreateAccount(referral = false) in core.requests)
         assertEquals(number, vm.newNumber)
     }
 

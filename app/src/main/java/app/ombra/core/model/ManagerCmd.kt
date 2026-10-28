@@ -19,6 +19,10 @@ sealed interface ManagerCmd {
     @Serializable @SerialName("apiServiceStatus")
     data object ApiServiceStatus : ManagerCmd
 
+    /** Ombra patch P16. */
+    @Serializable @SerialName("apiUseReferralCode")
+    data class ApiUseReferralCode(val code: String) : ManagerCmd
+
     @Serializable @SerialName("createDebugBundle")
     data class CreateDebugBundle(
         val userFeedback: String?,
@@ -115,6 +119,7 @@ internal object ManagerCmdSerializer : ExternallyTaggedSerializer<ManagerCmd>(
     ManagerCmd.ApiDeleteAccount::class to ManagerCmd.ApiDeleteAccount.serializer(),
     ManagerCmd.ApiGetAccountInfo::class to ManagerCmd.ApiGetAccountInfo.serializer(),
     ManagerCmd.ApiServiceStatus::class to ManagerCmd.ApiServiceStatus.serializer(),
+    ManagerCmd.ApiUseReferralCode::class to ManagerCmd.ApiUseReferralCode.serializer(),
     ManagerCmd.CreateDebugBundle::class to ManagerCmd.CreateDebugBundle.serializer(),
     ManagerCmd.GetExitList::class to ManagerCmd.GetExitList.serializer(),
     ManagerCmd.GetRelayList::class to ManagerCmd.GetRelayList.serializer(),

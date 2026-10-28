@@ -148,6 +148,8 @@
     <string name="create_trial_unknown">Ombra could not check for a free trial.</string>
     <string name="create_action">Create account</string>
     <string name="create_action_trial">Start free trial</string>
+    <string name="create_referral">Use the referral of the Ombra developer</string>
+    <string name="create_referral_detail">After your first payment, you and the developer each get one free month. Obscura links the two accounts until one month after the free months.</string>
     <string name="create_terms">By creating an account you accept the Obscura terms of service and privacy policy.</string>
     <string name="create_terms_link">Read the terms</string>
     <string name="new_account_title">Your account number</string>

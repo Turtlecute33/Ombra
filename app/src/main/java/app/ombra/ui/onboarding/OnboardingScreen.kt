@@ -63,6 +63,7 @@ import app.ombra.ui.components.Icons
 import app.ombra.ui.components.Notice
 import app.ombra.ui.components.NoticeTone
 import app.ombra.ui.components.OmbraMark
+import app.ombra.ui.components.SwitchRow
 import app.ombra.ui.components.copySensitive
 import app.ombra.ui.nav.sharedAxis
 import app.ombra.ui.openLink
@@ -278,6 +279,13 @@ private fun Create(vm: OnboardingViewModel) {
         Point(Icons.Warning, stringResource(R.string.create_point_secret))
         Spacer(Modifier.height(Spacing.l))
         TrialRow(vm.trial)
+        Spacer(Modifier.height(Spacing.s))
+        SwitchRow(
+            title = stringResource(R.string.create_referral),
+            supporting = stringResource(R.string.create_referral_detail),
+            checked = vm.useReferral,
+            onCheckedChange = { vm.useReferral = it },
+        )
         vm.errorCode?.let { code ->
             Spacer(Modifier.height(Spacing.l))
             Notice(stringResource(requestErrorText(code)), NoticeTone.Error)

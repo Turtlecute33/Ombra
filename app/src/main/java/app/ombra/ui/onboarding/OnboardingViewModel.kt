@@ -53,6 +53,9 @@ class OnboardingViewModel(private val core: CoreSource) : ViewModel() {
     var trial by mutableStateOf<Trial?>(null)
         private set
 
+    /** Create screen switch: also link the new account to the referral code of the Ombra developer (DESIGN §10). */
+    var useReferral by mutableStateOf(true)
+
     /** The new account number; null after a process death until the user reveals it again. */
     var newNumber by mutableStateOf<String?>(null)
         private set
@@ -91,7 +94,7 @@ class OnboardingViewModel(private val core: CoreSource) : ViewModel() {
     fun create() {
         if (busy) return
         launchRequest {
-            newNumber = core.createAccount()
+            newNumber = core.createAccount(useReferral)
             show(OnboardingStep.NewAccount)
         }
     }

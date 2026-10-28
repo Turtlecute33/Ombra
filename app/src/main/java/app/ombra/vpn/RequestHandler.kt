@@ -62,7 +62,7 @@ class RequestHandler(
 
     private suspend fun execute(request: Request): String = when (request) {
         is Request.Login -> controller.login(request.accountNumber).let { JSON_NULL }
-        Request.CreateAccount -> jsonString(controller.createAccount())
+        is Request.CreateAccount -> jsonString(controller.createAccount(request.referral))
         Request.EndNewAccountFlow -> controller.endNewAccountFlow().let { JSON_NULL }
         Request.Logout -> controller.logout().also { forgetAccountFiles() }.let { JSON_NULL }
         Request.DeleteAccount -> controller.deleteAccount().also { forgetAccountFiles() }.let { JSON_NULL }

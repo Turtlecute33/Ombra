@@ -219,7 +219,7 @@ interface IResultCallback { oneway void onResult(String okJson, String errorCode
 ```
 
 - `call` takes app-level requests (a `@Serializable sealed interface Request` in `ipc/`), not raw
-  Rust JSON: `Login(accountNumber)`, `CreateAccount`, `Logout`, `DeleteAccount`, `RefreshAccount`,
+  Rust JSON: `Login(accountNumber)`, `CreateAccount(referral)`, `Logout`, `DeleteAccount`, `RefreshAccount`,
   `ServiceStatus`, `EndNewAccountFlow`, `RevealAccountNumber`, `UpdateSettings(patch)`, `TrafficStats`, `RotateWgKey`,
   `RefreshLists`, `CreateDebugBundle(feedback)`. Connect and disconnect go through
   `OmbraVpnService` intents (so the foreground service exists). In debug builds only, `RawCommand(json)`.
@@ -409,6 +409,12 @@ Android side:
   TLS of the core trusts only the roots in `webpki-roots`, so an old root list stays in the app until
   a crate update (OMBRA-SEC-001, OMBRA-SEC-005).
 - Clipboard: sensitive flag; clear after 60 s when possible.
+- Referral (owner decision 2026-10-28): the Create screen has a switch, on by default, "Use the
+  referral of the Ombra developer". With it on, `:vpn` sends `apiUseReferralCode` (P16) with
+  `CoreController.REFERRAL_CODE` after the new account logs in, in the background. A failure only goes
+  to the log, and the account creation does not wait for it. Obscura gives the new account and the
+  developer one free month each at the first payment, and deletes the link one month after that. The
+  UI sends only the switch value over IPC, never a code. The README tells the user.
 - Account screen: the platform `BiometricPrompt` (`BIOMETRIC_STRONG or DEVICE_CREDENTIAL`) before
   the first Show, Copy, Add time or final Delete of a visit. One prompt per visit; the visit ends when
   the screen stops. No prompt when the phone has no screen lock (`KeyguardManager.isDeviceSecure`).

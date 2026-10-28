@@ -145,6 +145,10 @@ pub enum ManagerCmd {
         promo_code: Option<String>,
     },
     ApiServiceStatus {},
+    /// Ombra patch P16: links the logged-in account to a referrer (`POST referral/use`).
+    ApiUseReferralCode {
+        code: String,
+    },
     CreateDebugBundle {
         user_feedback: Option<String>,
         bundle_info: BundleInfo,
@@ -314,6 +318,7 @@ impl ManagerCmd {
             }
             Self::ApiGoogleBillingDetails { promo_code } => map_result(manager.google_billing_details(promo_code).await),
             Self::ApiServiceStatus {} => map_result(manager.get_service_status().await),
+            Self::ApiUseReferralCode { code } => map_result(manager.use_referral_code(code).await),
             Self::SetFeatureFlag { flag, active } => manager.run_on_client_state(|c| c.set_feature_flag(&flag, active)),
             Self::CreateDebugBundle { user_feedback, bundle_info, android_cache_dir } => manager
                 .create_debug_bundle(user_feedback, bundle_info, android_cache_dir)

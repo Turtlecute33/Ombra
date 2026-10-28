@@ -262,6 +262,7 @@ fn commands() -> Vec<(&'static str, ManagerCmd)> {
         ("apiDeleteAccount", ManagerCmd::ApiDeleteAccount {}),
         ("apiGetAccountInfo", ManagerCmd::ApiGetAccountInfo {}),
         ("apiServiceStatus", ManagerCmd::ApiServiceStatus {}),
+        ("apiUseReferralCode", ManagerCmd::ApiUseReferralCode { code: "abc123".into() }),
         ("getExitList", ManagerCmd::GetExitList { known_version: Some(vec![0, 1, 2, 3]) }),
         ("getExitListFirst", ManagerCmd::GetExitList { known_version: None }),
         ("getRelayList", ManagerCmd::GetRelayList { known_version: Some(vec![0, 1, 2]) }),

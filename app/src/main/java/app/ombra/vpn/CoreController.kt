@@ -122,8 +122,10 @@ class CoreController(
     /**
      * Creates an account with a new client-side number and returns that number. The new-account
      * flow stays on until [endNewAccountFlow], so the UI can show the number until it is saved.
+     * With [referral], the account also gets [REFERRAL_CODE] in the background: a failure (for
+     * example a code that the API does not know) only goes to the log (DESIGN §10).
      */
-    suspend fun createAccount(): String {
+    suspend fun createAccount(referral: Boolean): String {
         val number = AccountNumber.generate()
         core.call(CoreCommands.setInNewAccountFlow(true))
         try {
@@ -132,6 +134,7 @@ class CoreController(
             quietly("new-account flow reset") { endNewAccountFlow() }
             throw e
         }
+        if (referral) scope.launch { quietly("referral") { core.call(CoreCommands.apiUseReferralCode(REFERRAL_CODE)) } }
         return number
     }
 
@@ -265,6 +268,9 @@ class CoreController(
 
     companion object {
         private const val TAG = "OmbraCore"
+
+        /** The Obscura referral code of the Ombra developer. A new account and the developer each get a free month at the first payment. */
+        const val REFERRAL_CODE = "e22kby"
         val ACCOUNT_REFRESH_INTERVAL = 12.hours
 
         /** Rust retries a connect about every second; an expired account refreshes at most this often. */

@@ -278,7 +278,7 @@ class CoreControllerTest {
 
     @Test
     fun createAccountLogsInWithANewValidNumber() = runTest {
-        val created = controller().createAccount()
+        val created = controller().createAccount(referral = false)
 
         assertTrue(AccountNumber.isValid(created))
         assertEquals(
@@ -291,9 +291,28 @@ class CoreControllerTest {
     @Test
     fun failedCreateAccountEndsTheNewAccountFlow() = runTest {
         core.failures[ManagerCmd.Login::class] = "apiSignupLimitExceeded"
-        val error = assertFailsWith<ErrorCodeException> { controller().createAccount() }
+        val error = assertFailsWith<ErrorCodeException> { controller().createAccount(referral = true) }
         assertEquals("apiSignupLimitExceeded", error.errorCode)
         assertEquals(ManagerCmd.SetInNewAccountFlow(false), core.sent.last())
+        assertEquals(0, core.count(ManagerCmd.ApiUseReferralCode::class))
+    }
+
+    @Test
+    fun createAccountWithReferralSendsTheCodeAfterTheLogin() = runTest {
+        val created = controller().createAccount(referral = true)
+        runCurrent()
+        val referral = core.sent.indexOf(ManagerCmd.ApiUseReferralCode(CoreController.REFERRAL_CODE))
+        assertTrue(referral > core.sent.indexOf(ManagerCmd.Login(created, validate = true)))
+        assertEquals(1, core.count(ManagerCmd.ApiUseReferralCode::class))
+    }
+
+    @Test
+    fun aRefusedReferralDoesNotFailTheNewAccount() = runTest {
+        core.failures[ManagerCmd.ApiUseReferralCode::class] = "apiError"
+        val created = controller().createAccount(referral = true)
+        runCurrent()
+        assertTrue(AccountNumber.isValid(created))
+        assertEquals(1, core.count(ManagerCmd.ApiUseReferralCode::class))
     }
 
     @Test

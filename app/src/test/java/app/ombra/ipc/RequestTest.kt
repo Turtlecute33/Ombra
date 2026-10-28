@@ -9,7 +9,8 @@ import kotlin.test.assertFalse
 class RequestTest {
     private val all: List<Request> = listOf(
         Request.Login("55550123456780554337"),
-        Request.CreateAccount,
+        Request.CreateAccount(referral = true),
+        Request.CreateAccount(referral = false),
         Request.EndNewAccountFlow,
         Request.Logout,
         Request.DeleteAccount,

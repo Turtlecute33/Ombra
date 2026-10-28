@@ -16,8 +16,8 @@ suspend fun CoreSource.trafficStats(): TrafficStats = decode(TrafficStats.serial
 suspend fun CoreSource.serviceStatus(): ServiceStatus = decode(ServiceStatus.serializer(), request(Request.ServiceStatus))
 
 /** Creates and logs in to a new account; returns its number. Calls the Obscura API. */
-suspend fun CoreSource.createAccount(): String =
-    stringResult(request(Request.CreateAccount)) ?: throw CoreRequestException(IpcError.BAD_RESPONSE)
+suspend fun CoreSource.createAccount(referral: Boolean): String =
+    stringResult(request(Request.CreateAccount(referral))) ?: throw CoreRequestException(IpcError.BAD_RESPONSE)
 
 /** The full account number, or null when logged out. Only on explicit user action. */
 suspend fun CoreSource.revealAccountNumber(): String? = stringResult(request(Request.RevealAccountNumber))

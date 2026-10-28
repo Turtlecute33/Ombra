@@ -55,6 +55,7 @@ class CoreContractTest {
         "apiDeleteAccount" to CoreCommands.apiDeleteAccount(),
         "apiGetAccountInfo" to CoreCommands.apiGetAccountInfo(),
         "apiServiceStatus" to CoreCommands.apiServiceStatus(),
+        "apiUseReferralCode" to CoreCommands.apiUseReferralCode("abc123"),
         "getExitList" to CoreCommands.getExitList("AAECAw=="),
         "getExitListFirst" to CoreCommands.getExitList(null),
         "getRelayList" to CoreCommands.getRelayList("AAEC"),

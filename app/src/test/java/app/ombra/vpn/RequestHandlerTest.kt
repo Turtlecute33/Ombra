@@ -75,10 +75,11 @@ class RequestHandlerTest {
 
     @Test
     fun createAccountAnswersTheNewNumber() = runTest {
-        val reply = handler().send(Request.CreateAccount)
+        val reply = handler().send(Request.CreateAccount(referral = false))
         val created = parseJsonString(reply.okJson!!)!!
         assertTrue(AccountNumber.isValid(created))
         assertTrue(ManagerCmd.Login(created, validate = true) in core.sent)
+        assertEquals(0, core.count(ManagerCmd.ApiUseReferralCode::class))
     }
 
     @Test

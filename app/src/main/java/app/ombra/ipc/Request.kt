@@ -24,11 +24,12 @@ sealed interface Request {
     /**
      * Ok: the new account number as a JSON string. Show it once with a "write it down" step.
      * Logs in and turns on Status.inNewAccountFlow; [EndNewAccountFlow] turns it off. Free trial
-     * availability comes from [ServiceStatus].
+     * availability comes from [ServiceStatus]. [referral]: also link the account to the referral
+     * code of the Ombra developer (DESIGN §10).
      */
     @Serializable
     @SerialName("createAccount")
-    data object CreateAccount : Request
+    data class CreateAccount(val referral: Boolean) : Request
 
     /** Ok: null. Ends the flow that [CreateAccount] started, for example when the number is saved. */
     @Serializable

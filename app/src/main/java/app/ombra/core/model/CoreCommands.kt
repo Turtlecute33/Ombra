@@ -70,6 +70,8 @@ object CoreCommands {
 
     fun apiDeleteAccount() = CoreCall(ManagerCmd.ApiDeleteAccount, API_TIMEOUT, ::decodeIgnored)
 
+    fun apiUseReferralCode(code: String) = CoreCall(ManagerCmd.ApiUseReferralCode(code), API_TIMEOUT, ::decodeUnit)
+
     fun rotateWgKey() = CoreCall(ManagerCmd.RotateWgKey, LOCAL_TIMEOUT, ::decodeUnit)
 
     /** Returns the absolute path of the zip. The bundle probes the network and contains logcat. */

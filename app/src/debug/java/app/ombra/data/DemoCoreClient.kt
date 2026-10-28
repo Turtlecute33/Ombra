@@ -144,7 +144,7 @@ class DemoCoreClient(scenario: DemoScenario, private val options: DemoOptions = 
         delay(REPLY_DELAY_MS)
         return when (request) {
             is Request.Login -> signIn(newAccount = false, active = true).let { JSON_NULL }
-            Request.CreateAccount -> signIn(newAccount = true, active = true).let { jsonString(number) }
+            is Request.CreateAccount -> signIn(newAccount = true, active = true).let { jsonString(number) }
             Request.EndNewAccountFlow -> statusState.update { it?.copy(inNewAccountFlow = false) }.let { JSON_NULL }
             Request.Logout, Request.DeleteAccount -> signOut().let { JSON_NULL }
             Request.ServiceStatus -> IpcJson.encodeToString(ServiceStatus.serializer(), ServiceStatus(FreeTrialStatus(available = true)))

@@ -9,7 +9,7 @@ use camino::Utf8PathBuf;
 use obscuravpn_api::{
     cmd::{
         AppleAssociateAccount, AppleAssociateAccountOutput, AuthOptional, Cmd, DeleteAccount, DeleteAccountOutput, ExitList, GetAccountInfo,
-        GoogleAssociateAccount, GoogleBillingDetails, GoogleBillingDetailsOutput, ServiceStatus, ServiceStatusOutput,
+        GoogleAssociateAccount, GoogleBillingDetails, GoogleBillingDetailsOutput, ReferralCode, ServiceStatus, ServiceStatusOutput, UseReferralCode,
     },
     types::{AccountId, AccountInfo, OneExit, OneRelay, WgPubkey},
 };
@@ -292,6 +292,11 @@ impl Manager {
         let account_info = self.api_request(GetAccountInfo()).await?;
         self.client_state.update_account_info(&account_info);
         Ok(account_info)
+    }
+
+    /// Ombra patch P16: the referrer gets a free month when this account first pays, and so does this account.
+    pub async fn use_referral_code(&self, code: String) -> Result<(), ApiError> {
+        self.api_request(UseReferralCode { code: ReferralCode(code) }).await
     }
 
     pub async fn get_service_status(&self) -> Result<ServiceStatusOutput, ApiError> {
