@@ -1,0 +1,9 @@
+# cargo-deny settings for scripts/audit-rust.zsh. Each ignore entry needs a reason.
+[advisories]
+ignore = [
+    # zip 7.2.0: these three are about extraction. The core only writes the debug bundle
+    # (debug_bundle/zipper.rs, ZipWriter) and never reads or extracts a zip archive.
+    { id = "RUSTSEC-2026-0367", reason = "extraction only; the core only writes zips" },
+    { id = "RUSTSEC-2026-0368", reason = "extraction only; the core only writes zips" },
+    { id = "RUSTSEC-2026-0369", reason = "extraction only; the core only writes zips" },
+]

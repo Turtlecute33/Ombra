@@ -55,6 +55,7 @@ exports it with the patches.
 | Date | Change | Reason |
 |---|---|---|
 | 2026-10-28 | `webpki-roots` 1.0.0 -> 1.0.11, `rustls-webpki` 0.103.3 -> 0.103.16, `rustls` 0.23.28 -> 0.23.46. Cargo also changed: `aws-lc-rs` 1.15.4 -> 1.18.2, `aws-lc-sys` 0.37.1 -> 0.46.0, `regex` 1.10.4 -> 1.13.1 with `regex-automata` 0.4.18 and `regex-syntax` 0.8.11 (`aws-lc-fips-sys` 0.14.3 needs `regex` 1.11.1 or later). Not in the Android library: `bindgen` 0.73.2 (replaces 0.69.5 and 0.72.1), `aws-lc-fips-sys` 0.13.7 -> 0.14.3, `shlex` 2.0.1, the `windows-sys` version of 4 crates. | RUSTSEC-2026-0381 (`webpki-roots` has the distrusted root "emSign ECC Root CA - G3"), RUSTSEC-2026-0382 (`rustls-webpki` accepts the distrusted emSign intermediate keys, which are public). The API TLS of the core trusts only these compiled-in roots, not the Android CA store. RUSTSEC-2026-0349 and RUSTSEC-2026-0285 (`rustls`). Report OMBRA-SEC-001, OMBRA-SEC-005. |
+| 2026-10-28 | `anyhow` 1.0.98 -> 1.0.104, `bytes` 1.10.1 -> 1.12.1, `rand` 0.8.5 -> 0.8.8, `time` 0.3.37 -> 0.3.55, `tokio` 1.45.1 -> 1.54.1, `tracing-subscriber` 0.3.18 -> 0.3.20, `spin` 0.9.8 -> 0.9.9 (yanked), `nix` 0.31.1 -> 0.31.3 (it pinned `libc` 0.2.180, and `tokio` 1.54 needs `libc` 0.2.183 or later). Cargo also changed: `libc` 0.2.191, `mio` 1.2.4, `socket2` 0.6.5 (0.5.10 removed), `deranged` 0.5.9, `num-conv` 0.2.2, `time-core` 0.1.9, `matchers` 0.2.0, `nu-ansi-term` 0.50.3, `tracing-serde` 0.2.0. Removed from the Android library: `backtrace`, `adler`, `addr2line`, `gimli`, `miniz_oxide` 0.7.1, `object`, `rustc-demangle`, `overload`, `regex-automata` 0.1.10, `regex-syntax` 0.6.29. Not in the Android library: `time-macros` 0.2.32, `tokio-macros` 2.7.2, `syn` 3.0.9, `hermit-abi` 0.3.9 removed. | RUSTSEC-2026-0190 (`anyhow`), RUSTSEC-2025-0056 (`adler` unmaintained, through `backtrace`), RUSTSEC-2026-0007 (`bytes`), the `rand`, `time`, `tokio` and `tracing-subscriber` advisories that `scripts/audit-rust.zsh` reported, and the yanked `spin`. The `tokio` fix only deprecates `AsyncFd::new`: the Android tunnel (`src/android/tunnel.rs`) still calls it with an `Arc<OwnedFd>`, which keeps the fd open and the same while the `AsyncFd` lives, so the use is sound. RUSTSEC-2026-0367, -0368 and -0369 (`zip`) are about extraction; the core only writes zips, so `obscura-core/deny.toml` ignores them. Report OMBRA-SEC-005. |
 
 Commands, in `rust/obscura-core`, online once:
 
@@ -62,6 +63,15 @@ Commands, in `rust/obscura-core`, online once:
 cargo update -p webpki-roots --precise 1.0.11
 cargo update -p rustls-webpki --precise 0.103.16
 cargo update -p rustls --precise 0.23.46
+cargo update -p anyhow --precise 1.0.104
+cargo update -p bytes --precise 1.12.1
+cargo update -p time --precise 0.3.55
+cargo update -p tokio --precise 1.50.0   # first step; a direct 1.54.1 fails on socket2
+cargo update -p tracing-subscriber --precise 0.3.20
+cargo update -p spin --precise 0.9.9
+cargo update -p rand@0.8.5 --precise 0.8.8
+cargo update -p nix@0.31.1 --precise 0.31.3
+cargo update -p tokio --precise 1.54.1
 cargo fetch --locked
 ```
 
@@ -124,7 +134,7 @@ This is our reading of the texts, not legal advice.
   is the same file as `rust/LICENSE`, and its `Cargo.toml` has the same SPDX expression.
 - Other git dependencies: `neptun` is BSD-3-Clause, the `reqwest` fork is MIT OR Apache-2.0. The
   crates.io dependencies must match the `accepted` list in `obscura-core/about.toml`.
-- `app/src/main/assets/licenses/rust-crates.txt` (Licences screen) lists the 267 crates in the Android library:
+- `app/src/main/assets/licenses/rust-crates.txt` (Licences screen) lists the 256 crates in the Android library:
   `cargo metadata --format-version 1 --locked --offline --filter-platform aarch64-linux-android`, the normal
   dependencies of the library, checked against `cargo tree -e normal,no-proc-macro --target aarch64-linux-android`.
   Make it again after a dependency change. Then run `scripts/rust-notices.zsh`: it writes
