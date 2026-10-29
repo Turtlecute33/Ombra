@@ -186,8 +186,8 @@ P2. New commands:
     - `{"refreshRelayList":{"freshness":<ms>}}` -> `null`
     - `{"refreshOsNetworkConfig":{}}` -> `null`: Rust calls `ffiSetNetworkConfig` again with the current
       config while connected or connecting (no reconnect). Kotlin uses it after split-tunnel or
-      custom-DNS changes: DNS at once, split tunnel 1.5 s after the last change, because a new app
-      list replaces the VPN network (OMBRA-PERF-003). Since P0.1 the Android `set_os_network_config` keeps the TUN when the config
+      custom-DNS changes: DNS and split mode at once, app list 1.5 s after the last change, because a
+      new app list replaces the VPN network (OMBRA-PERF-003). Since P0.1 the Android `set_os_network_config` keeps the TUN when the config
       is unchanged, so this command must clear the stored config first (`AndroidOsImpl.tun`).
     - `Status.vpnStatus.connected.transport` gains `"wireguardUdp"`.
 P3. Privacy: no background system DNS lookup on an API DNS cache hit (`dns.rs`); clear

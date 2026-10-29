@@ -93,8 +93,9 @@ class CoreController(
             // A rebuild reads all current settings, so one is enough.
             tunRefresh?.cancel()
             // Android updates DNS in place, but a new app list replaces the VPN network and every app
-            // loses its connections: quick split-tunnel taps give one rebuild (OMBRA-PERF-003).
-            if (before.customDns != after.customDns) {
+            // loses its connections: quick app-list taps give one rebuild (OMBRA-PERF-003). A split mode
+            // change is one tap, so it applies at once and does not keep apps outside the tunnel longer.
+            if (before.customDns != after.customDns || before.splitMode != after.splitMode) {
                 refreshTun()
             } else {
                 tunRefresh = scope.launch {
@@ -277,7 +278,7 @@ class CoreController(
         val EXPIRED_REFRESH_GAP = 1.minutes
         private val POLL_RETRY_DELAY = 2.seconds
 
-        /** The time after the last split-tunnel change until the TUN rebuild. */
+        /** The time after the last app-list change until the TUN rebuild. */
         val SPLIT_TUN_REFRESH_DELAY = 1.5.seconds
     }
 }

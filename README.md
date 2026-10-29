@@ -17,7 +17,8 @@ Android 16 or newer (API 36), arm64.
 - **A data path for phones.** TUN writes run in their own thread, the Rust core uses one worker thread,
   and its threads get normal Linux scheduling. This is the largest gain: downloads about 9x faster.
 - **Speed mode.** Plain WireGuard over UDP through the same two-hop relay, for networks that do not
-  block WireGuard.
+  block WireGuard. Networks can see it and can tell which exit server you use. The relay cannot
+  check that packets come from you.
 - **QUIC tuned for a tunnel.** A 1350-byte packet floor (no packet is split in two), fewer ACKs,
   a shorter datagram queue, larger UDP buffers.
 - **Cheaper padding.** Small packets share one padded packet (about 10x less upload than one padded
@@ -49,6 +50,8 @@ Android 16 or newer (API 36), arm64.
   Ombra sends no referral. Login with an existing account never sends one.
 - Ombra talks to the Obscura API outside the tunnel, also in Stealth mode. The network can see the
   name of the API (in the DNS lookup and in TLS), and the API sees your IP address.
+- The Obscura API sees that you use Ombra and which version: the User-Agent is
+  `Ombra-Android/<version>`, as the Obscura API documentation asks of other clients.
 
 The full list of patches to the Rust core is in [rust/UPSTREAM.md](rust/UPSTREAM.md).
 

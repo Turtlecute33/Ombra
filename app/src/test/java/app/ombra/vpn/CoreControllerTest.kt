@@ -134,7 +134,7 @@ class CoreControllerTest {
         runCurrent()
         core.sent.clear()
 
-        controller.updateSettings(patch { put("splitMode", "exclude") })
+        controller.updateSettings(patch { put("splitApps", buildJsonArray { add("org.example.app1") }) })
         advanceTimeBy(CoreController.SPLIT_TUN_REFRESH_DELAY)
         runCurrent()
         assertEquals(listOf<ManagerCmd>(ManagerCmd.RefreshOsNetworkConfig), core.sent)
@@ -142,7 +142,7 @@ class CoreControllerTest {
         core.setStatus(VpnStatus.Disconnected)
         runCurrent()
         core.sent.clear()
-        controller.updateSettings(patch { put("splitMode", "include") })
+        controller.updateSettings(patch { put("splitApps", buildJsonArray { add("org.example.app2") }) })
         advanceTimeBy(CoreController.SPLIT_TUN_REFRESH_DELAY)
         runCurrent()
         assertEquals(emptyList(), core.sent)
@@ -157,6 +157,8 @@ class CoreControllerTest {
         core.sent.clear()
 
         controller.updateSettings(patch { put("splitMode", "exclude") })
+        assertEquals(listOf<ManagerCmd>(ManagerCmd.RefreshOsNetworkConfig), core.sent, "a mode change applies at once")
+        core.sent.clear()
         for (i in 1..5) {
             advanceTimeBy(1.seconds)
             controller.updateSettings(patch { put("splitApps", buildJsonArray { (1..i).forEach { add("org.example.app$it") } }) })
@@ -179,7 +181,7 @@ class CoreControllerTest {
         runCurrent()
         core.sent.clear()
 
-        controller.updateSettings(patch { put("splitMode", "exclude") })
+        controller.updateSettings(patch { put("splitApps", buildJsonArray { add("org.example.app1") }) })
         controller.updateSettings(patch { put("customDns", buildJsonArray { add("192.0.2.53") }) })
         assertEquals(listOf<ManagerCmd>(ManagerCmd.RefreshOsNetworkConfig), core.sent)
 

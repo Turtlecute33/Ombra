@@ -271,7 +271,7 @@ Conclusion:
 
 | Observer | QUIC (Stealth) | WireGuard UDP (Speed) |
 |---|---|---|
-| Local network / ISP (DPI) | QUIC v1 to a relay IP on 53 or 443. ALPN `h3` (`quicwg.rs:730`) and SNI `example.com` by default (`constants.rs:12`), readable from QUIC Initial packets. The SNI does not match the IP, which is a weak sign. A long single flow at high volume is a heuristic sign. Not a fixed fingerprint | WireGuard is easy to fingerprint: type byte 1 to 4, three zero reserved bytes, handshake of 148 / 92 / 64 bytes. Blocked in Russia since 2023 (TSPU; https://github.com/net4people/bbs/issues/274), and by AmneziaWG-class DPI elsewhere. The network sees "this device uses WireGuard" |
+| Local network / ISP (DPI) | QUIC v1 to a relay IP on 53 or 443. ALPN `h3` (`quicwg.rs:730`) and SNI `example.com` by default (`constants.rs:12`), readable from QUIC Initial packets. The SNI does not match the IP, which is a weak sign. A long single flow at high volume is a heuristic sign. Not a fixed fingerprint | WireGuard is easy to fingerprint: type byte 1 to 4, three zero reserved bytes, handshake of 148 / 92 / 64 bytes. Blocked in Russia since 2023 (TSPU; https://github.com/net4people/bbs/issues/274), and by AmneziaWG-class DPI elsewhere. The network sees "this device uses WireGuard". The mac1 of each handshake initiation is in clear text and keyed by the exit public key, so an observer with a list of exit keys can tell which exit server you use |
 | ISP, by IP only | Relay IPs are Obscura's and any account can list them (`ListRelays`). VPN use is visible in both modes | same |
 | Relay (Obscura) | client IP, timing, volume, exit choice, tunnel UUID token. No plaintext | client IP, timing, volume, exit choice. No token. Sees WireGuard receiver index and counter. No plaintext |
 | Exit (Mullvad) | relay IP, client WG pubkey, plaintext destinations | same |
@@ -284,7 +284,7 @@ Downsides of UDP mode:
 - No relay-side authentication, so a DoS / redirect risk exists. [H]
 - It depends on a feature that the API repo calls unsupported.
 
-In networks without censorship, the privacy difference is small. Both modes keep two-hop separation and end-to-end WireGuard to the exit. [H]
+In networks without censorship, both modes keep two-hop separation and end-to-end WireGuard to the exit. But only Speed mode shows the local network which exit server you use (mac1, see the table). [H]
 
 ---
 

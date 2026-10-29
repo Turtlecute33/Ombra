@@ -244,21 +244,13 @@ impl Manager {
     pub async fn login(&self, account_id: AccountId, validate: bool) -> Result<(), ConfigDirtyOrApiError> {
         let mut auth_token = None;
         if validate {
-            const MAX_ATTEMPTS: usize = 10;
-            for _ in 0..MAX_ATTEMPTS {
-                let api_client = self.client_state.make_api_client(account_id.clone())?;
-                let output = api_client.acquire_auth_token().await.map_err(ApiError::from)?;
-                if let Some(url_override) = output.url_override {
-                    // TODO: https://linear.app/soveng/issue/OBS-2268/override-web-url-for-apple-demo-accounts
-                    self.set_api_url(Some(url_override.api));
-                } else {
-                    auth_token = Some(output.auth_token);
-                    break;
-                }
+            let api_client = self.client_state.make_api_client(account_id.clone())?;
+            let output = api_client.acquire_auth_token().await.map_err(ApiError::from)?;
+            // Ombra patch P17: do not follow `url_override`. It would keep another API URL in the config.
+            if output.url_override.is_some() {
+                return Err(ApiError::ApiClient(anyhow::format_err!("API asked for another API URL").into()).into());
             }
-            if auth_token.is_none() {
-                return Err(ApiError::ApiClient(anyhow::format_err!("exceeded {MAX_ATTEMPTS} URL overrides").into()).into());
-            }
+            auth_token = Some(output.auth_token);
         }
         self.client_state.set_account_id(Some((account_id, auth_token)))?;
         Ok(())

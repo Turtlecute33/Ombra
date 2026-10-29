@@ -100,7 +100,7 @@
     <!-- Connection -->
     <string name="connection_protocol">Protocol</string>
     <string name="connection_stealth_detail">WireGuard inside QUIC. Looks like web traffic and passes most firewalls, but is slower than Speed. Ombra talks to the Obscura API outside the tunnel, so the network can see the API name.</string>
-    <string name="connection_speed_detail">Plain WireGuard over UDP. The fastest, but networks can see and block it.</string>
+    <string name="connection_speed_detail">Plain WireGuard over UDP. The fastest, but networks can see and block it and can tell which exit server you use. The relay cannot check that packets come from you.</string>
     <string name="connection_tcp_detail">For networks that block UDP. The slowest: use it only when the other two fail.</string>
     <string name="connection_protocol_note">A change while connected reconnects at once.</string>
     <string name="connection_speed_options">Speed</string>
@@ -109,7 +109,7 @@
         <item quantity="one">%1$d byte</item>
         <item quantity="other">%1$d bytes</item>
     </plurals>
-    <string name="connection_mtu_detail">Larger packets are faster. If pages stall, go back to 1280, which works on all networks.</string>
+    <string name="connection_mtu_detail">Larger packets are faster. If pages stall, go back to 1280. If they still stall, use Stealth with Small-MTU compatibility.</string>
     <string name="connection_stealth_options">Stealth</string>
     <string name="connection_padding">Packet padding</string>
     <string name="connection_padding_detail">Gives all packets that this phone sends the same size. Packets from the relay keep their sizes. Uses more upload bandwidth.</string>
@@ -157,7 +157,7 @@
     <string name="split_exclude_detail">The chosen apps bypass the VPN</string>
     <string name="split_include">Only the chosen apps</string>
     <string name="split_include_detail">Other apps bypass the VPN</string>
-    <string name="split_note">Apps that bypass the VPN show your IP address. Ombra itself always stays outside the tunnel. Changes apply at once.</string>
+    <string name="split_note">Apps that bypass the VPN show your IP address. Ombra itself always stays outside the tunnel. Changes apply a few seconds after your last change.</string>
     <string name="split_lockdown">Block connections without VPN is on: Android gives apps that bypass the VPN no network at all.</string>
     <plurals name="split_apps_excluded">
         <item quantity="one">%1$d app bypasses the VPN</item>
@@ -193,7 +193,7 @@
     <string name="advanced_sni">Relay SNI host</string>
     <string name="advanced_sni_detail">The name that the relay connection shows to the network</string>
     <string name="advanced_api_host">Backup API host</string>
-    <string name="advanced_api_host_detail">An extra address for the Obscura API, after the Obscura backup address. It gets your account number and token, so enter only a host that Obscura publishes.</string>
+    <string name="advanced_api_host_detail">An extra address for the Obscura API, after the Obscura backup address. It gets your account number and token, also when the Obscura API works, so enter only a host that Obscura publishes.</string>
     <string name="advanced_host_default">Default</string>
     <string name="advanced_host_invalid">Enter a host name, for example cdn.example.org</string>
     <string name="advanced_hosts_note">For networks that block Obscura. Leave empty for the default. The SNI host applies at the next connect, the API host at once.</string>
