@@ -84,6 +84,10 @@ android {
         jniLibs {
             // Store the .so uncompressed and page-aligned so it maps straight from the APK.
             useLegacyPackaging = false
+            // No code calls androidx.graphics.path (Compose Path.iterator()). After R8 only its JNI classes stay, with
+            // no callers, so its System.loadLibrary never runs. If a library update starts to use Path.iterator(),
+            // remove this line: without the .so that call stops the app on every Android version.
+            excludes += "lib/*/libandroidx.graphics.path.so"
         }
         resources {
             // Licence files also in the library folders (META-INF/androidx/...): the Licences screen shows the
