@@ -1,11 +1,11 @@
 # Optimizations
 
 Review of Ombra on 2026-10-30, at commit 0842c4e on branch main-public.
-Status: review only. No change is applied yet. The owner selects the items to apply.
+Status: the approved items are applied on branch optimize, except OMBRA-OPT-09. See Results.
 
 Rules for this list: the security-review changes (the audit of 2026-10-27: the commits with a 'Report: <ID>' line, see `git log --grep='Report:' --format='%h %s'`; /Users/user/Documents/Github/android/NEXT-STEPS.md has the status of each item in sections 5 and 6 and in the appendix section for this app) stay as they are. No change to storage formats, database schemas, preference keys or encryption. Each applied item is one commit, so that you can revert it alone.
 
-Effort: S = under 1 hour, M = up to half a day, L = more. Status: proposed, approved, applied (<commit>), rejected. applied = done; `git log --grep=<ID>` shows the commit.
+Effort: S = under 1 hour, M = up to half a day, L = more. Status: proposed, approved, applied (<commit>), rejected, not applied: <reason>. applied = done; `git log --grep=<ID>` shows the commit.
 
 ## Summary
 
@@ -23,8 +23,8 @@ Ombra is in good shape. Startup is lean, IPC and the Rust core are event-driven,
 | OMBRA-OPT-06 | Do not crash :vpn when the 'VPN wanted' marker file cannot be created | stability | S | low | applied |
 | OMBRA-OPT-07 | Stop the connection details sheet from opening again by itself | ui-ux | S | low | applied |
 | OMBRA-OPT-08 | Delete unused code and two duplicate icon files | minimalism | S | low | applied |
-| OMBRA-OPT-09 | Remove SystemState fields that nothing reads, and the capability callback that fills them | minimalism | S | low | approved |
-| OMBRA-OPT-10 | Keep in-flight core requests alive when the UI unbinds; fail them only when :vpn dies | stability | M | medium | rejected (owner, 2026-10-30) |
+| OMBRA-OPT-09 | Remove SystemState fields that nothing reads, and the capability callback that fills them | minimalism | S | low | not applied: the edit of the test and DESIGN.md was blocked |
+| OMBRA-OPT-10 | Keep in-flight core requests alive when the UI unbinds; fail them only when :vpn dies | stability | M | medium | not applied: rejected (owner, 2026-10-30) |
 
 ### OMBRA-OPT-01: Link the Rust core with packed relative relocations (RELR)
 
@@ -144,7 +144,7 @@ Ombra is in good shape. Startup is lean, IPC and the Rust core are event-driven,
 - **Effort**: S. **Risk**: low. **Net lines**: about -25 (estimate).
 - **Owner check**: The change deletes one line from the P12 security-review commit 3467ae9 (NetworkMonitor.kt:91). Confirm that P12 code that fills an unread flag can change, or reject this item.
 - **Owner decision**: Approved (2026-10-30). The change can delete NetworkMonitor.kt:91, a line of the P12 security-review commit 3467ae9 that only fills an unread flag.
-- **Status**: approved
+- **Status**: not applied: the edit of NetworkFactsTest.kt and docs/DESIGN.md was blocked (no permission for the agent). See Results.
 
 ### OMBRA-OPT-10: Keep in-flight core requests alive when the UI unbinds; fail them only when :vpn dies
 
@@ -157,7 +157,7 @@ Ombra is in good shape. Startup is lean, IPC and the Rust core are event-driven,
 - **Verify**: Apply after OMBRA-OPT-05 and OMBRA-OPT-08 (same file). Add an AccountViewModelTest case for a late reply after endVisit. On the emulator, rotate and press Home during Login and Create account: no false error, and only one account is created. Do the OMBRA-SEC-003 check again (PIN prompt, number hidden after Home). Kill :vpn during a request: the request fails at once.
 - **Effort**: M. **Risk**: medium. **Net lines**: about +4 (estimate).
 - **Owner check**: This item changes how the OMBRA-SEC-003 flow (b828a80) drops a late reply after endVisit(). Confirm that the `unlocked` guard in reveal() and addTime() is an acceptable replacement, and do the SEC-003 check again before you approve it.
-- **Status**: rejected (owner, 2026-10-30)
+- **Status**: not applied: rejected (owner, 2026-10-30)
 
 ## Areas in good shape
 
@@ -175,3 +175,28 @@ Ombra is in good shape. Startup is lean, IPC and the Rust core are event-driven,
 - Rust release profile: fat LTO, 1 codegen unit, panic=abort, stripped, offline frozen build. The TUN reader is event-driven, and config writes occur only on a real change.
 - Abstractions: CoreSource, CoreChannel and TunnelControl each have a second real implementation, so they are not over-abstraction.
 - UI/UX: the connect control is accessible. Loading, empty and error states exist. There is one back model with predictive back. Confirmations match the risk, keyboards fit each input, and the app uses Material 3 Expressive.
+
+## Results
+
+Full check on 2026-10-30 at d6f59ba (branch optimize, versionName 0.2.8, versionCode 10). Each command ran alone with `JAVA_HOME=/opt/homebrew/opt/openjdk@21`. No adb, device or emulator was used.
+
+- **Size**: release APK 14,059,949 B (0842c4e) -> 13,062,849 B (d6f59ba), -997,100 B (about -7 %). Both are the signed app-release.apk of the same version. Steps: OMBRA-OPT-01 -720,784 B (libobscuravpn_client.so 10,405,496 B -> 9,684,712 B), OMBRA-OPT-02 and OMBRA-OPT-03 together -52 B, OMBRA-OPT-04 -275,388 B, OMBRA-OPT-08 -876 B. `apksigner verify` and `zipalign -c -P 16` pass. The .so in the APK has the RELR tag (RELRSZ 9008, RELASZ 336). The README now says about 13.1 MB, and about 9.7 MB for the Rust core (estimate).
+- **Checks**:
+  - `./gradlew :app:testDebugUnitTest`: pass. 309 tests, 0 failures, 0 skipped. A second run with `--rerun` gives the same result.
+  - `./gradlew :app:lintDebug`: pass. 0 errors, 3 warnings: newer versions of Gradle (9.8.2), AGP (9.5.0) and material3 (1.5.0-beta02) are available. These warnings do not come from this branch.
+  - `./gradlew :app:assembleDebug`: pass.
+  - `./gradlew :app:assembleRelease`: pass. The output is the signed app-release.apk.
+- **Not applied**:
+  - OMBRA-OPT-09: approved, but the agent had no permission to edit app/src/test/java/app/ombra/vpn/NetworkFactsTest.kt and docs/DESIGN.md. To apply it, allow these edits or make them by hand, then apply the item again. Test change: in the wlan LinkFacts, remove `privateDnsActive = true`. In networkFactsFillTheSystemState, call `before.withNetwork(wlan)` and expect `SystemState(alwaysOn = true, lockdown = false, privateDnsServer = "dns.example", backgroundRestricted = true)`. In noNetworkClearsTheNetworkFactsOnly, use `withNetwork(wlan)` and `withNetwork(null)`. DESIGN.md:248-249: the list becomes 'always-on, lockdown, Private DNS server in strict mode, background restriction'.
+  - OMBRA-OPT-10: rejected by the owner (2026-10-30).
+  - Outside this repo: the OMBRA-OPT-04 owner decision also covers MegaGlass-Android. There, commit eb730fa still keeps the library locales. That app needs its own change.
+- **Owner checks by hand** (on the emulator, or on the phone with a release build installed over the release build):
+  - OMBRA-OPT-01: run CoreSmokeTest on the emulator. On the phone, connect one time. A RELR fault stops the load of the .so at once.
+  - OMBRA-OPT-02: Settings > Connection with Stealth on, Settings > Advanced, and Locations > Entry relay while offline show the new texts.
+  - OMBRA-OPT-03: on Debug bundle, DNS (custom server) and Advanced (SNI host), tap the field. The field and the button under it stay above the keyboard.
+  - OMBRA-OPT-04: with another system language, the country names in Locations stay in that language. The library labels (also for TalkBack) are in English.
+  - OMBRA-OPT-05: connect, then kill the :vpn process (this stops the VPN for a short time). The Connect screen leaves 'Protected', shows the Startup screen, then shows the new status.
+  - OMBRA-OPT-06: optional, a connect on a full disk. The JVM test covers the change.
+  - OMBRA-OPT-07: connect, open the details sheet, disconnect from the notification, then connect again: no sheet opens. Rotate with the sheet open: it stays open.
+  - OMBRA-OPT-08: the launcher icon and the Quick Settings tile icon look the same as before.
+  - Windows: nothing to check. Ombra has no Windows part.
