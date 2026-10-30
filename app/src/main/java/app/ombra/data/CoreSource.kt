@@ -14,9 +14,6 @@ import kotlinx.coroutines.flow.StateFlow
  * :vpn process; debug builds can play scripted states instead (DemoCoreClient).
  */
 interface CoreSource {
-    /** True while requests can reach the core. */
-    val connected: StateFlow<Boolean>
-
     /** Sanitized: accountId is null, use [Status.isLoggedIn]. Null until the first push. */
     val status: StateFlow<Status?>
     val exits: StateFlow<CachedValue<ExitList>?>

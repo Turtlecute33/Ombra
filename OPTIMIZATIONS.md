@@ -22,7 +22,7 @@ Ombra is in good shape. Startup is lean, IPC and the Rust core are event-driven,
 | OMBRA-OPT-05 | Clear the UI status when the :vpn process dies | stability | S | low | applied |
 | OMBRA-OPT-06 | Do not crash :vpn when the 'VPN wanted' marker file cannot be created | stability | S | low | applied |
 | OMBRA-OPT-07 | Stop the connection details sheet from opening again by itself | ui-ux | S | low | applied |
-| OMBRA-OPT-08 | Delete unused code and two duplicate icon files | minimalism | S | low | approved |
+| OMBRA-OPT-08 | Delete unused code and two duplicate icon files | minimalism | S | low | applied |
 | OMBRA-OPT-09 | Remove SystemState fields that nothing reads, and the capability callback that fills them | minimalism | S | low | approved |
 | OMBRA-OPT-10 | Keep in-flight core requests alive when the UI unbinds; fail them only when :vpn dies | stability | M | medium | rejected (owner, 2026-10-30) |
 
@@ -129,7 +129,8 @@ Ombra is in good shape. Startup is lean, IPC and the Rust core are event-driven,
 - **Safety**: No change to JNI symbols, keep rules or Rust exports (Native.java stays). The icon design (DESIGN section 8) does not change. The manifest lines come from b8bff8c, not from the security commits that touched other manifest lines (7ac51f0, b828a80, f953285). No storage, preference key or key handling changes. No dependency.
 - **Verify**: This merges the lean findings 'Remove dead members' and 'Delete two byte-identical icon resources', and the `connected` removal from the stability finding behind OMBRA-OPT-05. Unit tests must compile and pass. The launcher icon and the Quick Settings tile icon must look the same on the emulator.
 - **Effort**: S. **Risk**: low. **Net lines**: about -34 (estimate).
-- **Status**: approved
+- **Verified**: `./gradlew :app:testDebugUnitTest :app:assembleDebug` (309 tests, 0 failures) and `./gradlew :app:assembleRelease` pass. In the release APK, `unzip -lv` shows that res/av.xml and res/rR.xml are gone; res/vO.xml (588 B, CRC b0b5fd26) and res/E4.xml (548 B, CRC 8cb35478) stay. `apkanalyzer manifest print` and `aapt2 dump resources`: the tile icon is drawable/ic_notification, the app icon is mipmap/ic_launcher, and no roundIcon is set. Release APK 13,063,725 B -> 13,062,849 B (-876 B). Not checked: the launcher icon and the Quick Settings tile icon at run time on an emulator or a device.
+- **Status**: applied
 
 ### OMBRA-OPT-09: Remove SystemState fields that nothing reads, and the capability callback that fills them
 

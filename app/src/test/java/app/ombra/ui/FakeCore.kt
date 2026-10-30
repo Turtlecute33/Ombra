@@ -20,7 +20,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
  * patch, and everything else answers null.
  */
 class FakeCore : CoreSource {
-    override val connected = MutableStateFlow(true)
     override val status = MutableStateFlow<Status?>(null)
     override val exits = MutableStateFlow<CachedValue<ExitList>?>(null)
     override val relays = MutableStateFlow<CachedValue<List<OneRelay>>?>(null)

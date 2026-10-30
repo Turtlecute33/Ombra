@@ -45,18 +45,10 @@ object RustFfi {
     /** Tells Rust the device woke up, so a dead tunnel is detected after one lost probe. */
     fun wake() = Native.wake(requireHandle())
 
-    fun forwardLog(level: LogLevel, tag: String, message: String, messageId: String, throwable: Throwable? = null) {
-        requireHandle()
-        Native.forwardLog(level.ordinal, tag, message, messageId, throwable?.stackTraceToString())
-    }
-
     fun flushAndStopPersistedLog() {
         requireHandle()
         Native.flushAndStopPersistedLog()
     }
 
     private fun requireHandle(): Native.FfiHandle = handle ?: throw IllegalStateException("Rust core is not initialized")
-
-    /** Ordinals are the levels Rust expects in forwardLog. */
-    enum class LogLevel { Trace, Debug, Info, Warn, Error }
 }

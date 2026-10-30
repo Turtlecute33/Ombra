@@ -58,10 +58,6 @@ class CoreClient(context: Context) : CoreSource {
     private val settingsState = MutableStateFlow<Settings?>(null)
     private val systemState = MutableStateFlow<SystemState?>(null)
 
-    private val connectedState = MutableStateFlow(false)
-
-    /** True while the binder to :vpn is connected. */
-    override val connected: StateFlow<Boolean> = connectedState.asStateFlow()
     override val status: StateFlow<Status?> = statusState.asStateFlow()
     override val exits: StateFlow<CachedValue<ExitList>?> = exitsState.asStateFlow()
     override val relays: StateFlow<CachedValue<List<OneRelay>>?> = relaysState.asStateFlow()
@@ -97,7 +93,6 @@ class CoreClient(context: Context) : CoreSource {
                 return
             }
             core.value = remote
-            connectedState.value = true
         }
 
         override fun onServiceDisconnected(name: ComponentName) {
@@ -161,7 +156,6 @@ class CoreClient(context: Context) : CoreSource {
 
     private fun lost() {
         core.value = null
-        connectedState.value = false
         pending.toList().forEach { it.fail(IpcError.DISCONNECTED) }
     }
 

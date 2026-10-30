@@ -128,7 +128,6 @@ class DemoCoreClient(scenario: DemoScenario, private val options: DemoOptions = 
     private val settingsState = MutableStateFlow<Settings?>(settingsFor(scenario, options))
     private val statusState = MutableStateFlow(statusFor(scenario))
 
-    override val connected: StateFlow<Boolean> = MutableStateFlow(true)
     override val status: StateFlow<Status?> = statusState.asStateFlow()
     override val exits: StateFlow<CachedValue<ExitList>?> = MutableStateFlow(CachedValue(VERSION, 0, ExitList(EXITS)).takeIf { options.exits })
     override val relays: StateFlow<CachedValue<List<OneRelay>>?> = MutableStateFlow(CachedValue(VERSION, 0, RELAYS).takeIf { options.relays })

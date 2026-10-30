@@ -41,7 +41,6 @@
             android:name=".ui.MainActivity"
             android:exported="true"
             android:launchMode="singleTask"
-            android:roundIcon="@mipmap/ic_launcher_round"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -133,7 +132,7 @@
         <service
             android:name=".vpn.QuickTileService"
             android:exported="true"
-            android:icon="@drawable/ic_tile"
+            android:icon="@drawable/ic_notification"
             android:label="@string/tile_label"
             android:permission="android.permission.BIND_QUICK_SETTINGS_TILE"
             android:process=":vpn">
