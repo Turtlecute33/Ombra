@@ -27,4 +27,12 @@ class VpnWantedTest {
         wanted.value = false
         assertFalse(VpnWanted.isSet(tmp.root))
     }
+
+    @Test
+    fun markerThatCannotBeCreatedDoesNotThrow() {
+        // createNewFile throws IOException when the directory is missing, as it does on a full disk.
+        val wanted = VpnWanted(File(File(tmp.root, "missing"), VpnWanted.FILE_NAME))
+        wanted.value = true
+        assertTrue(wanted.value)
+    }
 }

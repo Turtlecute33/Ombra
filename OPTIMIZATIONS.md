@@ -20,7 +20,7 @@ Ombra is in good shape. Startup is lean, IPC and the Rust core are event-driven,
 | OMBRA-OPT-03 | Keep the focused field above the keyboard on Settings pages | ui-ux | S | low | applied |
 | OMBRA-OPT-04 | Ship only English library strings (localeFilters) | minimalism | S | low | applied |
 | OMBRA-OPT-05 | Clear the UI status when the :vpn process dies | stability | S | low | applied |
-| OMBRA-OPT-06 | Do not crash :vpn when the 'VPN wanted' marker file cannot be created | stability | S | low | approved |
+| OMBRA-OPT-06 | Do not crash :vpn when the 'VPN wanted' marker file cannot be created | stability | S | low | applied |
 | OMBRA-OPT-07 | Stop the connection details sheet from opening again by itself | ui-ux | S | low | approved |
 | OMBRA-OPT-08 | Delete unused code and two duplicate icon files | minimalism | S | low | approved |
 | OMBRA-OPT-09 | Remove SystemState fields that nothing reads, and the capability callback that fills them | minimalism | S | low | approved |
@@ -103,7 +103,8 @@ Ombra is in good shape. Startup is lean, IPC and the Rust core are event-driven,
 - **Safety**: The file name, its location and its meaning (exists = wanted) stay the same, so existing installs read the same state. Only the failure path changes. This is not security-review code and not key or storage-format handling. No dependency.
 - **Verify**: The JVM test covers the change: createNewFile with a missing parent directory throws IOException. The trigger is narrow (marker absent, disk full, mainly f2fs), so impact is low.
 - **Effort**: S. **Risk**: low. **Net lines**: about +5 (estimate).
-- **Status**: approved
+- **Verified**: `./gradlew :app:testDebugUnitTest :app:assembleDebug` passes (309 tests, 0 failures). The new VpnWantedTest case fails with IOException without the change. Not checked: a connect on a full disk at run time on an emulator or a device.
+- **Status**: applied
 
 ### OMBRA-OPT-07: Stop the connection details sheet from opening again by itself
 
