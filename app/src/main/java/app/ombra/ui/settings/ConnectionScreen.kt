@@ -77,7 +77,8 @@ fun ConnectionScreen(core: CoreSource, editor: SettingsEditor, onBack: () -> Uni
                 onCheckedChange = { on -> vm.update { it.copy(forceSmallMtu = on) } },
             )
         }
-        GroupNote(stringResource(if (stealth) R.string.connection_stealth_note else R.string.connection_stealth_only))
+        // In Stealth mode the protocol note above already says that a change reconnects at once.
+        if (!stealth) GroupNote(stringResource(R.string.connection_stealth_only))
 
         SectionHeader(stringResource(R.string.connection_start))
         RowGroup {

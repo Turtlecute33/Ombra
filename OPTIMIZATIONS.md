@@ -50,6 +50,7 @@ Ombra is in good shape. Startup is lean, IPC and the Rust core are event-driven,
 - **Verify**: The ui lens also gave an option: show connection_protocol_note at ConnectionScreen.kt:80 and delete connection_stealth_note (-1 line). That shows the same note two times on the page, so the string-only change is better. Verify on the emulator: open Settings > Connection with Stealth on, Settings > Advanced, and Locations > Entry relay while offline. Not checked on a device.
 - **Effort**: S. **Risk**: low. **Net lines**: about 0 (estimate).
 - **Verified**: `./gradlew :app:testDebugUnitTest :app:assembleDebug` (308 tests, 0 failures) and `./gradlew :app:assembleRelease` pass. `apkanalyzer resources value` on the release APK shows the three new texts. Not checked: the three screens at run time on an emulator or a device.
+- **Follow-up** (owner, 2026-10-30): the emulator showed that connection_stealth_note now had the same text as connection_protocol_note, so in Stealth mode the sentence showed two times. In Stealth mode the page now shows no note under the Stealth options, and the unused string is deleted.
 - **Status**: applied
 
 ### OMBRA-OPT-03: Keep the focused field above the keyboard on Settings pages

@@ -115,7 +115,6 @@
     <string name="connection_padding_detail">Gives all packets that this phone sends the same size. Packets from the relay keep their sizes. Uses more upload bandwidth.</string>
     <string name="connection_small_mtu">Small-MTU compatibility</string>
     <string name="connection_small_mtu_detail">For networks that drop large packets. Lowers the speed a little.</string>
-    <string name="connection_stealth_note">A change while connected reconnects at once.</string>
     <string name="connection_stealth_only">These work only with Stealth.</string>
     <string name="connection_start">Start</string>
 
