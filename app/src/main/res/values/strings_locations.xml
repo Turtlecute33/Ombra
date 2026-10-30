@@ -30,7 +30,7 @@
     <string name="locations_loading">Loading the list</string>
     <string name="locations_missing">No list yet</string>
     <string name="locations_missing_exits">Ombra has no exit list yet. Load it from Obscura.</string>
-    <string name="locations_missing_relays">Ombra has no relay list yet. This version of the VPN core may not give one. Fastest relay always works.</string>
+    <string name="locations_missing_relays">Ombra has no relay list yet. Load it from Obscura. Fastest relay always works.</string>
     <string name="locations_empty">No locations</string>
     <string name="locations_empty_detail">The list from Obscura has no servers. Load it again.</string>
     <string name="locations_refresh">Load the list</string>

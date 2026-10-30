@@ -16,7 +16,7 @@ Ombra is in good shape. Startup is lean, IPC and the Rust core are event-driven,
 | ID | Finding | Area | Effort | Risk | Status |
 |---|---|---|---|---|---|
 | OMBRA-OPT-01 | Link the Rust core with packed relative relocations (RELR) | minimalism | S | low | applied |
-| OMBRA-OPT-02 | Correct three texts that describe the upstream core, not the patched core | ui-ux | S | low | approved |
+| OMBRA-OPT-02 | Correct three texts that describe the upstream core, not the patched core | ui-ux | S | low | applied |
 | OMBRA-OPT-03 | Keep the focused field above the keyboard on Settings pages | ui-ux | S | low | approved |
 | OMBRA-OPT-04 | Ship only English library strings (localeFilters) | minimalism | S | low | approved |
 | OMBRA-OPT-05 | Clear the UI status when the :vpn process dies | stability | S | low | approved |
@@ -49,7 +49,8 @@ Ombra is in good shape. Startup is lean, IPC and the Rust core are event-driven,
 - **Safety**: String values only. All lines come from b8bff8c, not from a 'Report:' commit. connection_stealth_detail (OMBRA-PRIV-003, 9e5a91d) and advanced_api_host_detail (OMBRA-SEC-007) stay unchanged. No storage, schema, preference key or key handling changes. No dependency.
 - **Verify**: The ui lens also gave an option: show connection_protocol_note at ConnectionScreen.kt:80 and delete connection_stealth_note (-1 line). That shows the same note two times on the page, so the string-only change is better. Verify on the emulator: open Settings > Connection with Stealth on, Settings > Advanced, and Locations > Entry relay while offline. Not checked on a device.
 - **Effort**: S. **Risk**: low. **Net lines**: about 0 (estimate).
-- **Status**: approved
+- **Verified**: `./gradlew :app:testDebugUnitTest :app:assembleDebug` (308 tests, 0 failures) and `./gradlew :app:assembleRelease` pass. `apkanalyzer resources value` on the release APK shows the three new texts. Not checked: the three screens at run time on an emulator or a device.
+- **Status**: applied
 
 ### OMBRA-OPT-03: Keep the focused field above the keyboard on Settings pages
 

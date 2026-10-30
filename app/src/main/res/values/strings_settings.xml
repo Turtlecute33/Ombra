@@ -115,7 +115,7 @@
     <string name="connection_padding_detail">Gives all packets that this phone sends the same size. Packets from the relay keep their sizes. Uses more upload bandwidth.</string>
     <string name="connection_small_mtu">Small-MTU compatibility</string>
     <string name="connection_small_mtu_detail">For networks that drop large packets. Lowers the speed a little.</string>
-    <string name="connection_stealth_note">These apply from the next connect.</string>
+    <string name="connection_stealth_note">A change while connected reconnects at once.</string>
     <string name="connection_stealth_only">These work only with Stealth.</string>
     <string name="connection_start">Start</string>
 
@@ -196,7 +196,7 @@
     <string name="advanced_api_host_detail">An extra address for the Obscura API, after the Obscura backup address. It gets your account number and token, also when the Obscura API works, so enter only a host that Obscura publishes.</string>
     <string name="advanced_host_default">Default</string>
     <string name="advanced_host_invalid">Enter a host name, for example cdn.example.org</string>
-    <string name="advanced_hosts_note">For networks that block Obscura. Leave empty for the default. The SNI host applies at the next connect, the API host at once.</string>
+    <string name="advanced_hosts_note">For networks that block Obscura. Leave empty for the default. Both apply at once: a new SNI host reconnects a Stealth or TCP/TLS tunnel.</string>
     <string name="advanced_details">Relay, exit and keys</string>
     <string name="advanced_details_detail">Compare the exit key with the key of its operator</string>
     <string name="advanced_details_off">Connect to see them</string>
