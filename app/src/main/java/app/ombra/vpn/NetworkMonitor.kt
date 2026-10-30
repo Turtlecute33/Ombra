@@ -23,7 +23,6 @@ class NetworkMonitor(private val service: VpnService) {
     private val handler = Handler(Looper.getMainLooper())
     private var registered = false
     private var link: LinkFacts? = null
-    private var cellular = false
     private var reported: RustNetwork? = null
 
     /** The network Rust uses now; also the VPN's underlying network. Read by the TUN builder thread. */
@@ -40,13 +39,6 @@ class NetworkMonitor(private val service: VpnService) {
             service.setUnderlyingNetworks(arrayOf(network))
         }
 
-        // Called often (signal strength), so only the cheap transport check runs here.
-        override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) {
-            if (network != current) return
-            cellular = capabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)
-            publish()
-        }
-
         // The interface can change on the same network (for example when clatd starts).
         override fun onLinkPropertiesChanged(network: Network, linkProperties: LinkProperties) {
             if (network != current) return
@@ -58,7 +50,6 @@ class NetworkMonitor(private val service: VpnService) {
             if (network != current) return
             current = null
             link = null
-            cellular = false
             service.setUnderlyingNetworks(emptyArray())
             publish()
         }
@@ -88,7 +79,6 @@ class NetworkMonitor(private val service: VpnService) {
             capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
         if (!usable) return
         current = network
-        cellular = capabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)
         link = readLink(linkProperties)
         service.setUnderlyingNetworks(arrayOf(network))
         publish()
@@ -109,7 +99,7 @@ class NetworkMonitor(private val service: VpnService) {
     private fun publish() {
         val network = current
         if (network != null && link == null) return
-        CoreHost.updateSystemState { it.withNetwork(link, cellular) }
+        CoreHost.updateSystemState { it.withNetwork(link) }
         report(network?.let { rustNetwork(it.networkHandle, link) })
     }
 
@@ -133,7 +123,6 @@ class NetworkMonitor(private val service: VpnService) {
             interfaceName = name,
             interfaceIndex = base?.index ?: -1,
             mtu = clatAwareMtu(baseMtu, clat?.let(::mtuOf) ?: 0),
-            privateDnsActive = linkProperties.isPrivateDnsActive,
             privateDnsServer = linkProperties.privateDnsServerName,
         )
     }

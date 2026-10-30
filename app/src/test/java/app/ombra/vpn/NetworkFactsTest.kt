@@ -10,7 +10,6 @@ class NetworkFactsTest {
         interfaceName = "wlan0",
         interfaceIndex = 30,
         mtu = 1500,
-        privateDnsActive = true,
         privateDnsServer = "dns.example",
     )
 
@@ -51,24 +50,16 @@ class NetworkFactsTest {
     @Test
     fun networkFactsFillTheSystemState() {
         val before = SystemState(alwaysOn = true, lockdown = false, backgroundRestricted = true)
-        val after = before.withNetwork(wlan.copy(mtu = 1472), cellular = true)
+        val after = before.withNetwork(wlan)
         assertEquals(
-            SystemState(
-                alwaysOn = true,
-                lockdown = false,
-                privateDnsActive = true,
-                privateDnsServer = "dns.example",
-                backgroundRestricted = true,
-                cellular = true,
-                underlyingMtu = 1472,
-            ),
+            SystemState(alwaysOn = true, lockdown = false, privateDnsServer = "dns.example", backgroundRestricted = true),
             after,
         )
     }
 
     @Test
     fun noNetworkClearsTheNetworkFactsOnly() {
-        val before = SystemState(alwaysOn = false).withNetwork(wlan, cellular = true)
-        assertEquals(SystemState(alwaysOn = false), before.withNetwork(null, cellular = false))
+        val before = SystemState(alwaysOn = false).withNetwork(wlan)
+        assertEquals(SystemState(alwaysOn = false), before.withNetwork(null))
     }
 }

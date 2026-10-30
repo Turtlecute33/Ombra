@@ -12,7 +12,6 @@ data class LinkFacts(
     val interfaceIndex: Int,
     /** CLAT-aware MTU (see [clatAwareMtu]), 0 when unknown. */
     val mtu: Int,
-    val privateDnsActive: Boolean,
     /** Set only in strict mode (a host name). */
     val privateDnsServer: String?,
 )
@@ -36,10 +35,5 @@ fun rustNetwork(networkHandle: Long, link: LinkFacts?): RustNetwork? {
     return RustNetwork(name, link.interfaceIndex, networkHandle, link.mtu)
 }
 
-/** [link] null with [cellular] false means "no network". */
-fun SystemState.withNetwork(link: LinkFacts?, cellular: Boolean): SystemState = copy(
-    privateDnsActive = link?.privateDnsActive == true,
-    privateDnsServer = link?.privateDnsServer,
-    cellular = cellular,
-    underlyingMtu = link?.mtu ?: 0,
-)
+/** [link] null means "no network". */
+fun SystemState.withNetwork(link: LinkFacts?): SystemState = copy(privateDnsServer = link?.privateDnsServer)

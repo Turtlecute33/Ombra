@@ -245,8 +245,8 @@ interface IResultCallback { oneway void onResult(String okJson, String errorCode
     live process as `DeadObjectException`, and `RemoteCallbackList` drops a dead listener by itself.
   - Debug builds only: `StatePushProbe` (process `:probe`) sends 2000 exits and 300 relays to
     `StatePushProbeTest` across processes. Release builds do not contain it.
-- `SYSTEM` pushes `ipc/SystemState.kt` (always-on, lockdown, Private DNS, background restriction,
-  cellular, CLAT-aware underlying MTU). Only the :vpn process can read these.
+- `SYSTEM` pushes `ipc/SystemState.kt` (always-on, lockdown, Private DNS server in strict mode,
+  background restriction). Only the :vpn process can read these.
 - New connect error code `udpHandshakeFailed` (P5): Speed mode got no WireGuard handshake in about
   5 s. The UI offers "Switch to Stealth".
 - Every binder entry point checks `Binder.getCallingUid() == Process.myUid()`.

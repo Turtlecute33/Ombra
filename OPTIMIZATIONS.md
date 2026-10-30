@@ -1,7 +1,7 @@
 # Optimizations
 
 Review of Ombra on 2026-10-30, at commit 0842c4e on branch main-public.
-Status: the approved items are applied on branch optimize, except OMBRA-OPT-09. See Results.
+Status: the approved items are applied on branch optimize. See Results.
 
 Rules for this list: the security-review changes (the audit of 2026-10-27: the commits with a 'Report: <ID>' line, see `git log --grep='Report:' --format='%h %s'`; /Users/user/Documents/Github/android/NEXT-STEPS.md has the status of each item in sections 5 and 6 and in the appendix section for this app) stay as they are. No change to storage formats, database schemas, preference keys or encryption. Each applied item is one commit, so that you can revert it alone.
 
@@ -23,7 +23,7 @@ Ombra is in good shape. Startup is lean, IPC and the Rust core are event-driven,
 | OMBRA-OPT-06 | Do not crash :vpn when the 'VPN wanted' marker file cannot be created | stability | S | low | applied |
 | OMBRA-OPT-07 | Stop the connection details sheet from opening again by itself | ui-ux | S | low | applied |
 | OMBRA-OPT-08 | Delete unused code and two duplicate icon files | minimalism | S | low | applied |
-| OMBRA-OPT-09 | Remove SystemState fields that nothing reads, and the capability callback that fills them | minimalism | S | low | not applied: the edit of the test and DESIGN.md was blocked |
+| OMBRA-OPT-09 | Remove SystemState fields that nothing reads, and the capability callback that fills them | minimalism | S | low | applied |
 | OMBRA-OPT-10 | Keep in-flight core requests alive when the UI unbinds; fail them only when :vpn dies | stability | M | medium | not applied: rejected (owner, 2026-10-30) |
 
 ### OMBRA-OPT-01: Link the Rust core with packed relative relocations (RELR)
@@ -144,7 +144,8 @@ Ombra is in good shape. Startup is lean, IPC and the Rust core are event-driven,
 - **Effort**: S. **Risk**: low. **Net lines**: about -25 (estimate).
 - **Owner check**: The change deletes one line from the P12 security-review commit 3467ae9 (NetworkMonitor.kt:91). Confirm that P12 code that fills an unread flag can change, or reject this item.
 - **Owner decision**: Approved (2026-10-30). The change can delete NetworkMonitor.kt:91, a line of the P12 security-review commit 3467ae9 that only fills an unread flag.
-- **Status**: not applied: the edit of NetworkFactsTest.kt and docs/DESIGN.md was blocked (no permission for the agent). See Results.
+- **Verified**: Applied by hand after the agent was blocked. `./gradlew :app:testDebugUnitTest :app:assembleDebug` passes (309 tests, 0 failures; NetworkFactsTest adapted). `grep` finds no reader of the removed fields. Not checked: the Private DNS warning and a Wi-Fi switch at run time.
+- **Status**: applied
 
 ### OMBRA-OPT-10: Keep in-flight core requests alive when the UI unbinds; fail them only when :vpn dies
 
@@ -187,7 +188,7 @@ Full check on 2026-10-30 at d6f59ba (branch optimize, versionName 0.2.8, version
   - `./gradlew :app:assembleDebug`: pass.
   - `./gradlew :app:assembleRelease`: pass. The output is the signed app-release.apk.
 - **Not applied**:
-  - OMBRA-OPT-09: approved, but the agent had no permission to edit app/src/test/java/app/ombra/vpn/NetworkFactsTest.kt and docs/DESIGN.md. To apply it, allow these edits or make them by hand, then apply the item again. Test change: in the wlan LinkFacts, remove `privateDnsActive = true`. In networkFactsFillTheSystemState, call `before.withNetwork(wlan)` and expect `SystemState(alwaysOn = true, lockdown = false, privateDnsServer = "dns.example", backgroundRestricted = true)`. In noNetworkClearsTheNetworkFactsOnly, use `withNetwork(wlan)` and `withNetwork(null)`. DESIGN.md:248-249: the list becomes 'always-on, lockdown, Private DNS server in strict mode, background restriction'.
+  - none (OMBRA-OPT-09 was blocked for the agent and then applied by hand).
   - OMBRA-OPT-10: rejected by the owner (2026-10-30).
   - Outside this repo: the OMBRA-OPT-04 owner decision also covers MegaGlass-Android. There, commit eb730fa still keeps the library locales. That app needs its own change.
 - **Owner checks by hand** (on the emulator, or on the phone with a release build installed over the release build):
@@ -199,4 +200,5 @@ Full check on 2026-10-30 at d6f59ba (branch optimize, versionName 0.2.8, version
   - OMBRA-OPT-06: optional, a connect on a full disk. The JVM test covers the change.
   - OMBRA-OPT-07: connect, open the details sheet, disconnect from the notification, then connect again: no sheet opens. Rotate with the sheet open: it stays open.
   - OMBRA-OPT-08: the launcher icon and the Quick Settings tile icon look the same as before.
+  - OMBRA-OPT-09: with Private DNS in strict mode, the DNS warning shows. Switch Wi-Fi off and on while connected: the tunnel follows the network.
   - Windows: nothing to check. Ombra has no Windows part.

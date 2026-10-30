@@ -99,7 +99,7 @@ data class DemoOptions(
             when (flag.lowercase()) {
                 "alwayson" -> options.copy(system = options.system.copy(alwaysOn = true))
                 "lockdown" -> options.copy(system = options.system.copy(alwaysOn = true, lockdown = true))
-                "privatedns" -> options.copy(system = options.system.copy(privateDnsActive = true, privateDnsServer = "dns.example.net"))
+                "privatedns" -> options.copy(system = options.system.copy(privateDnsServer = "dns.example.net"))
                 "restricted" -> options.copy(system = options.system.copy(backgroundRestricted = true))
                 "trial" -> options.copy(account = DemoAccount.Trial)
                 "renews" -> options.copy(account = DemoAccount.Renews)
