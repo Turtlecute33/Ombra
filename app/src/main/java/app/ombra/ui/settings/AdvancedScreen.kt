@@ -53,7 +53,7 @@ fun AdvancedScreen(core: CoreSource, editor: SettingsEditor, onBack: () -> Unit,
     val state by vm.state.collectAsStateWithLifecycle()
     val settings = state.settings
     val tunnel = state.tunnel
-    var showDetails by rememberSaveable { mutableStateOf(false) }
+    var showDetails by rememberSaveable(tunnel != null) { mutableStateOf(false) }
     RequestErrorMessage(vm.errorCode, vm::errorShown)
 
     SettingsPage(stringResource(R.string.settings_advanced), onBack) {

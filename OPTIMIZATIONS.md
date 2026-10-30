@@ -21,7 +21,7 @@ Ombra is in good shape. Startup is lean, IPC and the Rust core are event-driven,
 | OMBRA-OPT-04 | Ship only English library strings (localeFilters) | minimalism | S | low | applied |
 | OMBRA-OPT-05 | Clear the UI status when the :vpn process dies | stability | S | low | applied |
 | OMBRA-OPT-06 | Do not crash :vpn when the 'VPN wanted' marker file cannot be created | stability | S | low | applied |
-| OMBRA-OPT-07 | Stop the connection details sheet from opening again by itself | ui-ux | S | low | approved |
+| OMBRA-OPT-07 | Stop the connection details sheet from opening again by itself | ui-ux | S | low | applied |
 | OMBRA-OPT-08 | Delete unused code and two duplicate icon files | minimalism | S | low | approved |
 | OMBRA-OPT-09 | Remove SystemState fields that nothing reads, and the capability callback that fills them | minimalism | S | low | approved |
 | OMBRA-OPT-10 | Keep in-flight core requests alive when the UI unbinds; fail them only when :vpn dies | stability | M | medium | rejected (owner, 2026-10-30) |
@@ -116,7 +116,8 @@ Ombra is in good shape. Startup is lean, IPC and the Rust core are event-driven,
 - **Safety**: Only the UI state of a bottom sheet. The lines come from b8bff8c, not from a 'Report:' commit. No storage, preference key or key handling changes. No dependency.
 - **Verify**: On the emulator: connect, open the sheet, disconnect from the notification, connect again: no sheet. Rotate with the sheet open: it stays open. A network change alone often keeps or rebinds the tunnel (P4), so the trigger is rare. Not checked on a device.
 - **Effort**: S. **Risk**: low. **Net lines**: about 0 (estimate).
-- **Status**: approved
+- **Verified**: `./gradlew :app:testDebugUnitTest :app:assembleDebug` passes (309 tests, 0 failures). No unit test covers the change: it is Compose state in a screen, and the suite has no Compose UI tests. Not checked: the sheet at run time on an emulator or a device (close on disconnect, no new open on reconnect, stays open on rotation).
+- **Status**: applied
 
 ### OMBRA-OPT-08: Delete unused code and two duplicate icon files
 

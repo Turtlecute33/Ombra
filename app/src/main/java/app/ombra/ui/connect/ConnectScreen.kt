@@ -77,7 +77,7 @@ fun ConnectScreen(
     val startProblem by tunnel.problem.collectAsStateWithLifecycle()
     val system by core.system.collectAsStateWithLifecycle()
     val batteryHintDismissed by prefs.batteryHintDismissed.collectAsStateWithLifecycle()
-    var showDetails by rememberSaveable { mutableStateOf(false) }
+    var showDetails by rememberSaveable(state.details != null) { mutableStateOf(false) }
     val context = LocalContext.current
 
     LaunchedEffect(startProblem) { if (startProblem != null) vm.onStartFailed() }
