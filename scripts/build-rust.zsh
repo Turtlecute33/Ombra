@@ -103,7 +103,8 @@ remap=(
 typeset -F 1 SECONDS
 for abi in $ABIS; do
   triple=${TRIPLE[$abi]}
-  export "CARGO_TARGET_${${triple//-/_}:u}_RUSTFLAGS=${(j: :)remap}"
+  # RELR packs the relative relocations (OMBRA-OPT-01). Bionic reads DT_RELR from API 30.
+  export "CARGO_TARGET_${${triple//-/_}:u}_RUSTFLAGS=${(j: :)remap} -C link-arg=-Wl,--pack-dyn-relocs=relr"
   print -- "==> $abi ($triple), API $ANDROID_API, NDK $NDK_VERSION, profile $PROFILE, $OBSCURA_VERSION"
   SECONDS=0
   # Not cargo-ndk -o: it also copies dependency cdylibs (libneptun-*.so, libtun_rs-*.so) and does not strip.
@@ -125,6 +126,7 @@ for abi in $ABIS; do
   for align in $aligns; do
     (( align >= 0x4000 )) || die "$abi: LOAD segment Align $align < 0x4000: the library does not load on 16 KB page devices"
   done
+  [[ $($LLVM_BIN/llvm-readelf -d $stripped) == *'(RELR)'* ]] || die "$abi: no RELR tag in $stripped"
   exports=(${(f)"$($LLVM_BIN/llvm-nm -D --defined-only -j $stripped)"})
   if [[ ${(j: :)${(@o)exports}} != ${(j: :)${(@o)EXPECTED_EXPORTS}} ]]; then
     die "$abi: exported symbols differ from the JNI contract.\n  expected: ${(@o)EXPECTED_EXPORTS}\n  found:    ${(@o)exports}"

@@ -15,7 +15,7 @@ Ombra is in good shape. Startup is lean, IPC and the Rust core are event-driven,
 
 | ID | Finding | Area | Effort | Risk | Status |
 |---|---|---|---|---|---|
-| OMBRA-OPT-01 | Link the Rust core with packed relative relocations (RELR) | minimalism | S | low | approved |
+| OMBRA-OPT-01 | Link the Rust core with packed relative relocations (RELR) | minimalism | S | low | applied |
 | OMBRA-OPT-02 | Correct three texts that describe the upstream core, not the patched core | ui-ux | S | low | approved |
 | OMBRA-OPT-03 | Keep the focused field above the keyboard on Settings pages | ui-ux | S | low | approved |
 | OMBRA-OPT-04 | Ship only English library strings (localeFilters) | minimalism | S | low | approved |
@@ -36,7 +36,8 @@ Ombra is in good shape. Startup is lean, IPC and the Rust core are event-driven,
 - **Safety**: This is a linker flag in Ombra's own build script. The lines come from b8bff8c, not from a 'Report:' commit. No change to Rust source, JNI contract, crypto, storage, preference keys or key handling. Full RELRO, BIND_NOW, 16 KB LOAD alignment, the export check and the build-path leak check stay. No new dependency.
 - **Verify**: Rebuild. Then run `llvm-readelf -d` on the stripped .so and check the RELR tag. Run CoreSmokeTest on the emulator: it loads the .so and calls initialize. A RELR load failure is immediate and deterministic at System.loadLibrary. Artifact note: the APK is versionName 0.2.8 (same as the build file), but it was built before HEAD 0842c4e. That commit only removes a 10 KB library, so the numbers above do not change.
 - **Effort**: S. **Risk**: low. **Net lines**: about +2 (estimate).
-- **Status**: approved
+- **Verified**: `scripts/build-rust.zsh` (full fat-LTO rebuild, the new RELR check passes), `./gradlew :app:testDebugUnitTest :app:assembleDebug` and `./gradlew :app:assembleRelease` pass. `llvm-readelf -d` on the stripped .so and on the .so in the release APK: RELR tag, RELRSZ 9008, RELASZ 336 (was 729240); BIND_NOW, FLAGS_1 NOW, GNU_RELRO, 16 KB LOAD Align and the JNI exports stay. .so 10,405,496 B -> 9,684,712 B, release APK 14,059,949 B -> 13,339,165 B (-720,784 B, about -5 %). `zipalign -c -P 16` passes. Not checked: CoreSmokeTest and a load of the .so on an emulator or a device.
+- **Status**: applied
 
 ### OMBRA-OPT-02: Correct three texts that describe the upstream core, not the patched core
 
