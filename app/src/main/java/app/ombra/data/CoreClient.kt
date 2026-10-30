@@ -100,7 +100,11 @@ class CoreClient(context: Context) : CoreSource {
             connectedState.value = true
         }
 
-        override fun onServiceDisconnected(name: ComponentName) = lost()
+        override fun onServiceDisconnected(name: ComponentName) {
+            // :vpn died, and its tunnel with it: show Loading until the new process pushes a status.
+            statusState.value = null
+            lost()
+        }
 
         override fun onBindingDied(name: ComponentName) {
             lost()

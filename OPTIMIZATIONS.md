@@ -19,7 +19,7 @@ Ombra is in good shape. Startup is lean, IPC and the Rust core are event-driven,
 | OMBRA-OPT-02 | Correct three texts that describe the upstream core, not the patched core | ui-ux | S | low | applied |
 | OMBRA-OPT-03 | Keep the focused field above the keyboard on Settings pages | ui-ux | S | low | applied |
 | OMBRA-OPT-04 | Ship only English library strings (localeFilters) | minimalism | S | low | applied |
-| OMBRA-OPT-05 | Clear the UI status when the :vpn process dies | stability | S | low | approved |
+| OMBRA-OPT-05 | Clear the UI status when the :vpn process dies | stability | S | low | applied |
 | OMBRA-OPT-06 | Do not crash :vpn when the 'VPN wanted' marker file cannot be created | stability | S | low | approved |
 | OMBRA-OPT-07 | Stop the connection details sheet from opening again by itself | ui-ux | S | low | approved |
 | OMBRA-OPT-08 | Delete unused code and two duplicate icon files | minimalism | S | low | approved |
@@ -90,7 +90,8 @@ Ombra is in good shape. Startup is lean, IPC and the Rust core are event-driven,
 - **Safety**: Only the UI copy of pushed state changes. No change to stored data, IPC format, preference keys or key handling. No security-review lines. No dependency.
 - **Verify**: Side effect: after a :vpn crash the main shell leaves composition, so the user comes back to Connect. This is acceptable after a crash. On the emulator: connect, open Connect, run `adb shell am kill` or kill the :vpn pid. Check that the screen leaves 'Protected' and comes back with the new status. Crashes are rare (NEXT-STEPS reports no native crash in the phone tests), so impact is low.
 - **Effort**: S. **Risk**: low. **Net lines**: about +3 (estimate).
-- **Status**: approved
+- **Verified**: `./gradlew :app:testDebugUnitTest :app:assembleDebug` passes (308 tests, 0 failures). No unit test added: CoreClient needs a real bound service. Not checked: a kill of :vpn while connected, and the Loading screen and the new status after it, at run time on an emulator or a device.
+- **Status**: applied
 
 ### OMBRA-OPT-06: Do not crash :vpn when the 'VPN wanted' marker file cannot be created
 
