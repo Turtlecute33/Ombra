@@ -4,6 +4,7 @@ import androidx.annotation.StringRes
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -23,13 +24,17 @@ import app.ombra.ui.theme.Spacing
 import java.text.DateFormat
 import java.util.Date
 
-/** A Settings page: a top bar with a back button, then content that scrolls. */
+/**
+ * A Settings page: a top bar with a back button, then content that scrolls. Edge-to-edge does not
+ * resize the window for the keyboard, so the page applies the IME inset to keep the focused field above it.
+ */
 @Composable
 fun SettingsPage(title: String, onBack: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
     SubScreen(title = title, onBack = onBack) { padding ->
         Column(
             Modifier
                 .fillMaxSize()
+                .imePadding()
                 .verticalScroll(rememberScrollState())
                 .padding(padding)
                 .padding(bottom = Spacing.xl),

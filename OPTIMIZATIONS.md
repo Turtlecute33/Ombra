@@ -17,7 +17,7 @@ Ombra is in good shape. Startup is lean, IPC and the Rust core are event-driven,
 |---|---|---|---|---|---|
 | OMBRA-OPT-01 | Link the Rust core with packed relative relocations (RELR) | minimalism | S | low | applied |
 | OMBRA-OPT-02 | Correct three texts that describe the upstream core, not the patched core | ui-ux | S | low | applied |
-| OMBRA-OPT-03 | Keep the focused field above the keyboard on Settings pages | ui-ux | S | low | approved |
+| OMBRA-OPT-03 | Keep the focused field above the keyboard on Settings pages | ui-ux | S | low | applied |
 | OMBRA-OPT-04 | Ship only English library strings (localeFilters) | minimalism | S | low | approved |
 | OMBRA-OPT-05 | Clear the UI status when the :vpn process dies | stability | S | low | approved |
 | OMBRA-OPT-06 | Do not crash :vpn when the 'VPN wanted' marker file cannot be created | stability | S | low | approved |
@@ -62,7 +62,8 @@ Ombra is in good shape. Startup is lean, IPC and the Rust core are event-driven,
 - **Safety**: One layout modifier in a shared composable. SettingsTexts.kt:26-39 comes from b8bff8c, not from a 'Report:' commit. FLAG_SECURE, the screen-lock flow and the clipboard code are not touched. No storage, preference key or key handling changes. No dependency.
 - **Verify**: On the emulator, open Debug bundle, DNS (custom server) and Advanced (SNI host). Tap the field, and check that the field and the button stay visible above the keyboard. Layout effects are estimated, not measured on a device.
 - **Effort**: S. **Risk**: low. **Net lines**: about +1 (estimate).
-- **Status**: approved
+- **Verified**: `./gradlew :app:testDebugUnitTest :app:assembleDebug` passes (308 tests, 0 failures). The optional `consumeWindowInsets(padding)` is not applied: SettingsPage applies `padding` inside the scroll, so that modifier would let the viewport go one navigation-bar height under the keyboard. Not checked: the three pages with the keyboard at run time on an emulator or a device.
+- **Status**: applied
 
 ### OMBRA-OPT-04: Ship only English library strings (localeFilters)
 
