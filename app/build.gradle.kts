@@ -80,6 +80,11 @@ android {
         aidl = true
     }
 
+    androidResources {
+        // The UI is English only. Ship only the English strings of the libraries, so that their labels match the UI.
+        localeFilters += "en"
+    }
+
     packaging {
         jniLibs {
             // Store the .so uncompressed and page-aligned so it maps straight from the APK.

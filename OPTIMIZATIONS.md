@@ -18,7 +18,7 @@ Ombra is in good shape. Startup is lean, IPC and the Rust core are event-driven,
 | OMBRA-OPT-01 | Link the Rust core with packed relative relocations (RELR) | minimalism | S | low | applied |
 | OMBRA-OPT-02 | Correct three texts that describe the upstream core, not the patched core | ui-ux | S | low | applied |
 | OMBRA-OPT-03 | Keep the focused field above the keyboard on Settings pages | ui-ux | S | low | applied |
-| OMBRA-OPT-04 | Ship only English library strings (localeFilters) | minimalism | S | low | approved |
+| OMBRA-OPT-04 | Ship only English library strings (localeFilters) | minimalism | S | low | applied |
 | OMBRA-OPT-05 | Clear the UI status when the :vpn process dies | stability | S | low | approved |
 | OMBRA-OPT-06 | Do not crash :vpn when the 'VPN wanted' marker file cannot be created | stability | S | low | approved |
 | OMBRA-OPT-07 | Stop the connection details sheet from opening again by itself | ui-ux | S | low | approved |
@@ -77,7 +77,8 @@ Ombra is in good shape. Startup is lean, IPC and the Rust core are event-driven,
 - **Effort**: S. **Risk**: low. **Net lines**: about +4 (estimate).
 - **Owner check**: MegaGlass-Android commit eb730fa (Report: MEGAGLASS-PERF-006) kept the string locales on purpose, so that library text and TalkBack labels stay in the device language. This item does the opposite. Choose one rule for all apps before you approve it.
 - **Owner decision**: English-only library strings in all apps, MegaGlass included (2026-10-30). Apply it.
-- **Status**: approved
+- **Verified**: `./gradlew :app:testDebugUnitTest :app:assembleDebug` (308 tests, 0 failures) and `./gradlew :app:assembleRelease` pass. `apkanalyzer resources configs --type string` on the release APK lists only the default config, with the same 452 strings as before. aapt2 also removes the 5 en-* configs, because the filter 'en' has no region; those users get the default English text. resources.arsc 333,500 B -> 58,112 B, release APK 13,339,113 B -> 13,063,725 B (-275,388 B, about -2 %). Not checked: country names in Locations and the library TalkBack labels at run time on a device with another system language.
+- **Status**: applied
 
 ### OMBRA-OPT-05: Clear the UI status when the :vpn process dies
 
