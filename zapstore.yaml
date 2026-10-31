@@ -21,4 +21,8 @@ description: |
 license: GPL-3.0-only
 tags: [vpn, wireguard, privacy]
 icon: ./docs/images/icon.png
+images:
+  - ./docs/screenshots/connect.png
+  - ./docs/screenshots/locations.png
+  - ./docs/screenshots/settings.png
 metadata_sources: []
