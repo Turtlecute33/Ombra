@@ -1,0 +1,24 @@
+# Zapstore listing. The Zapstore indexer reads this file and publishes each new GitHub release.
+repository: https://github.com/Turtlecute33/Ombra
+summary: Fast, private Android client for Obscura VPN (unofficial). Two-hop WireGuard.
+description: |
+  An independent Android client for [Obscura VPN](https://obscura.net), built for speed and
+  privacy: a native Jetpack Compose app on top of the upstream Obscura Rust core, with our own
+  patches. Ombra is not made by Obscura. Android 16 or newer, arm64.
+
+  - **Three protocols**: Stealth (WireGuard in QUIC), Speed (WireGuard over UDP) and TCP/TLS,
+    through the two-hop Obscura relay.
+  - **Faster data path**: in our tests, downloads are about 9x faster than with the official app
+    (estimate).
+  - **Control**: choose the entry relay and the exit, DNS content blocking, split tunnelling,
+    kill switch status and a Quick Settings tile.
+  - **Privacy**: no analytics, no crash reporting, no Google Play Services. The WireGuard key is
+    encrypted with an Android Keystore key and rotates every 30 days, every day or at each connect.
+
+  Referral: when you create an account, a switch (on by default) adds the Obscura referral code of
+  the Ombra developer. Turn the switch off, and Ombra sends no referral. A login with an existing
+  account never sends one.
+license: GPL-3.0-only
+tags: [vpn, wireguard, privacy]
+icon: ./docs/images/icon.png
+metadata_sources: []
