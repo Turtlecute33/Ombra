@@ -36,7 +36,7 @@ Ombra is in good shape. Startup is lean, IPC and the Rust core are event-driven,
 - **Safety**: This is a linker flag in Ombra's own build script. The lines come from b8bff8c, not from a 'Report:' commit. No change to Rust source, JNI contract, crypto, storage, preference keys or key handling. Full RELRO, BIND_NOW, 16 KB LOAD alignment, the export check and the build-path leak check stay. No new dependency.
 - **Verify**: Rebuild. Then run `llvm-readelf -d` on the stripped .so and check the RELR tag. Run CoreSmokeTest on the emulator: it loads the .so and calls initialize. A RELR load failure is immediate and deterministic at System.loadLibrary. Artifact note: the APK is versionName 0.2.8 (same as the build file), but it was built before HEAD 0842c4e. That commit only removes a 10 KB library, so the numbers above do not change.
 - **Effort**: S. **Risk**: low. **Net lines**: about +2 (estimate).
-- **Verified**: `scripts/build-rust.zsh` (full fat-LTO rebuild, the new RELR check passes), `./gradlew :app:testDebugUnitTest :app:assembleDebug` and `./gradlew :app:assembleRelease` pass. `llvm-readelf -d` on the stripped .so and on the .so in the release APK: RELR tag, RELRSZ 9008, RELASZ 336 (was 729240); BIND_NOW, FLAGS_1 NOW, GNU_RELRO, 16 KB LOAD Align and the JNI exports stay. .so 10,405,496 B -> 9,684,712 B, release APK 14,059,949 B -> 13,339,165 B (-720,784 B, about -5 %). `zipalign -c -P 16` passes. Emulator (API 37, debug build): CoreSmokeTest passes (2 tests), :vpn loads the .so and initializes the core, and the installed .so has RELRSZ 9008 and RELASZ 336. Phone (Pixel 9 Pro XL, GrapheneOS, Android 17, debug build next to the release app): libobscuravpn_client.so loads ('... : ok'), 'OmbraCoreHost: Rust core initialized', no crash. Not checked: a connect with the release build.
+- **Verified**: `scripts/build-rust.zsh` (full fat-LTO rebuild, the new RELR check passes), `./gradlew :app:testDebugUnitTest :app:assembleDebug` and `./gradlew :app:assembleRelease` pass. `llvm-readelf -d` on the stripped .so and on the .so in the release APK: RELR tag, RELRSZ 9008, RELASZ 336 (was 729240); BIND_NOW, FLAGS_1 NOW, GNU_RELRO, 16 KB LOAD Align and the JNI exports stay. .so 10,405,496 B -> 9,684,712 B, release APK 14,059,949 B -> 13,339,165 B (-720,784 B, about -5 %). `zipalign -c -P 16` passes. Emulator (API 37, debug build): CoreSmokeTest passes (2 tests), :vpn loads the .so and initializes the core, and the installed .so has RELRSZ 9008 and RELASZ 336. Phone (Pixel 9 Pro XL, GrapheneOS, Android 17, debug build next to the release app): libobscuravpn_client.so loads ('... : ok'), 'OmbraCoreHost: Rust core initialized', no crash. Phone (2026-10-31, release 0.2.8 installed over the release): the VPN connected again by itself in about 2 s, with no crash and no ANR.
 - **Status**: applied
 
 ### OMBRA-OPT-02: Correct three texts that describe the upstream core, not the patched core
@@ -49,7 +49,7 @@ Ombra is in good shape. Startup is lean, IPC and the Rust core are event-driven,
 - **Safety**: String values only. All lines come from b8bff8c, not from a 'Report:' commit. connection_stealth_detail (OMBRA-PRIV-003, 9e5a91d) and advanced_api_host_detail (OMBRA-SEC-007) stay unchanged. No storage, schema, preference key or key handling changes. No dependency.
 - **Verify**: The ui lens also gave an option: show connection_protocol_note at ConnectionScreen.kt:80 and delete connection_stealth_note (-1 line). That shows the same note two times on the page, so the string-only change is better. Verify on the emulator: open Settings > Connection with Stealth on, Settings > Advanced, and Locations > Entry relay while offline. Not checked on a device.
 - **Effort**: S. **Risk**: low. **Net lines**: about 0 (estimate).
-- **Verified**: `./gradlew :app:testDebugUnitTest :app:assembleDebug` (308 tests, 0 failures) and `./gradlew :app:assembleRelease` pass. `apkanalyzer resources value` on the release APK shows the three new texts. Emulator (API 37): Settings > Connection, Settings > Advanced and Locations > Entry relay with no relay list show the new texts. After the follow-up 81dd88d: in Stealth mode the reconnect sentence shows one time and the Stealth group has no note; in Speed mode 'These work only with Stealth.' shows. Not checked: these screens on a device.
+- **Verified**: `./gradlew :app:testDebugUnitTest :app:assembleDebug` (308 tests, 0 failures) and `./gradlew :app:assembleRelease` pass. `apkanalyzer resources value` on the release APK shows the three new texts. Emulator (API 37): Settings > Connection, Settings > Advanced and Locations > Entry relay with no relay list show the new texts. After the follow-up 81dd88d: in Stealth mode the reconnect sentence shows one time and the Stealth group has no note; in Speed mode 'These work only with Stealth.' shows. Phone (2026-10-31, release): in Stealth mode the reconnect sentence shows one time. Not checked: the other screens on a device.
 - **Follow-up** (owner, 2026-10-30): the emulator showed that connection_stealth_note now had the same text as connection_protocol_note, so in Stealth mode the sentence showed two times. In Stealth mode the page now shows no note under the Stealth options, and the unused string is deleted.
 - **Status**: applied
 
@@ -63,7 +63,7 @@ Ombra is in good shape. Startup is lean, IPC and the Rust core are event-driven,
 - **Safety**: One layout modifier in a shared composable. SettingsTexts.kt:26-39 comes from b8bff8c, not from a 'Report:' commit. FLAG_SECURE, the screen-lock flow and the clipboard code are not touched. No storage, preference key or key handling changes. No dependency.
 - **Verify**: On the emulator, open Debug bundle, DNS (custom server) and Advanced (SNI host). Tap the field, and check that the field and the button stay visible above the keyboard. Layout effects are estimated, not measured on a device.
 - **Effort**: S. **Risk**: low. **Net lines**: about +1 (estimate).
-- **Verified**: `./gradlew :app:testDebugUnitTest :app:assembleDebug` passes (308 tests, 0 failures). The optional `consumeWindowInsets(padding)` is not applied: SettingsPage applies `padding` inside the scroll, so that modifier would let the viewport go one navigation-bar height under the keyboard. Emulator (API 37), partial pass: on Advanced, DNS and Debug bundle the focused field stays above the keyboard; on Advanced and DNS the Save and Add buttons stay above it too. Not checked: the pages on a device.
+- **Verified**: `./gradlew :app:testDebugUnitTest :app:assembleDebug` passes (308 tests, 0 failures). The optional `consumeWindowInsets(padding)` is not applied: SettingsPage applies `padding` inside the scroll, so that modifier would let the viewport go one navigation-bar height under the keyboard. Emulator (API 37), partial pass: on Advanced, DNS and Debug bundle the focused field stays above the keyboard; on Advanced and DNS the Save and Add buttons stay above it too. Phone (2026-10-31, release): the custom DNS field stays above the keyboard. Not checked: Advanced and Debug bundle on a device.
 - **Known limit**: on Debug bundle, the 'I agree, make the bundle' button stays under the keyboard until the user scrolls one time. On DNS, the error text under the custom DNS field shows under the keyboard until the user scrolls one time. The keyboard can stay open for this scroll.
 - **Status**: applied
 
@@ -118,7 +118,7 @@ Ombra is in good shape. Startup is lean, IPC and the Rust core are event-driven,
 - **Safety**: Only the UI state of a bottom sheet. The lines come from b8bff8c, not from a 'Report:' commit. No storage, preference key or key handling changes. No dependency.
 - **Verify**: On the emulator: connect, open the sheet, disconnect from the notification, connect again: no sheet. Rotate with the sheet open: it stays open. A network change alone often keeps or rebinds the tunnel (P4), so the trigger is rare. Not checked on a device.
 - **Effort**: S. **Risk**: low. **Net lines**: about 0 (estimate).
-- **Verified**: `./gradlew :app:testDebugUnitTest :app:assembleDebug` passes (309 tests, 0 failures). No unit test covers the change: it is Compose state in a screen, and the suite has no Compose UI tests. Emulator (API 37, demo mode): the sheet stays open on rotation. After a reconnect, no sheet opens on Connect or Advanced; the build before the fix (cd793b7) opens it again. Not checked: a disconnect from the notification or the tile.
+- **Verified**: `./gradlew :app:testDebugUnitTest :app:assembleDebug` passes (309 tests, 0 failures). No unit test covers the change: it is Compose state in a screen, and the suite has no Compose UI tests. Emulator (API 37, demo mode): the sheet stays open on rotation. After a reconnect, no sheet opens on Connect or Advanced; the build before the fix (cd793b7) opens it again. Phone (2026-10-31, release): after a disconnect and a connect from the notification, the sheet does not open again. Not checked: the same from the tile.
 - **Status**: applied
 
 ### OMBRA-OPT-08: Delete unused code and two duplicate icon files
@@ -146,7 +146,7 @@ Ombra is in good shape. Startup is lean, IPC and the Rust core are event-driven,
 - **Effort**: S. **Risk**: low. **Net lines**: about -25 (estimate).
 - **Owner check**: The change deletes one line from the P12 security-review commit 3467ae9 (NetworkMonitor.kt:91). Confirm that P12 code that fills an unread flag can change, or reject this item.
 - **Owner decision**: Approved (2026-10-30). The change can delete NetworkMonitor.kt:91, a line of the P12 security-review commit 3467ae9 that only fills an unread flag.
-- **Verified**: Applied by hand after the agent was blocked. `./gradlew :app:testDebugUnitTest :app:assembleDebug` passes (309 tests, 0 failures; NetworkFactsTest adapted). `grep` finds no reader of the removed fields. Emulator (API 37, demo mode): Settings > DNS shows the Private DNS warning. Not checked: the warning through NetworkMonitor in :vpn, and a Wi-Fi switch while connected.
+- **Verified**: Applied by hand after the agent was blocked. `./gradlew :app:testDebugUnitTest :app:assembleDebug` passes (309 tests, 0 failures; NetworkFactsTest adapted). `grep` finds no reader of the removed fields. Emulator (API 37, demo mode): Settings > DNS shows the Private DNS warning. Phone (2026-10-31, release): Wi-Fi off and on while connected is good. Not checked: the warning through NetworkMonitor in :vpn with strict Private DNS (optional).
 - **Status**: applied
 
 ### OMBRA-OPT-10: Keep in-flight core requests alive when the UI unbinds; fail them only when :vpn dies
@@ -228,8 +228,18 @@ Crashes and ANRs: the emulator has no crash and no ANR (crash log, dropbox, /dat
 
 Still for the owner (on the phone, with a release build installed over the release build):
 
-- OMBRA-OPT-01: connect one time with the release build. This checks the RELR .so under the hardened linker and MTE with a real tunnel.
-- OMBRA-OPT-05: connect, then kill the :vpn process (this stops the VPN for a short time). The Connect screen leaves 'Protected', shows the Startup screen, then shows the new status. On a phone, :vpn restarts in about 1 s.
+- OMBRA-OPT-05: connect, then kill the :vpn process (this stops the VPN for a short time). The Connect screen leaves 'Protected', shows the Startup screen, then shows the new status. On a phone, :vpn restarts in about 1 s. A release build does not allow a kill of :vpn without root.
 - OMBRA-OPT-06: optional, a connect on a full disk. The JVM test covers the change.
-- OMBRA-OPT-07: connect, open the details sheet, disconnect from the notification (or the tile), then connect again: no sheet opens.
-- OMBRA-OPT-09: with Private DNS in strict mode, the DNS warning shows. Switch Wi-Fi off and on while connected: the tunnel follows the network.
+- OMBRA-OPT-09: optional, with Private DNS in strict mode, the DNS warning shows.
+
+### Phone session (2026-10-31)
+
+Phone session on 2026-10-31 with the owner, on the owner Pixel 9 Pro XL (GrapheneOS, Android 17). Claude built the release APK of branch optimize. Claude checked that its signing certificate is the same as the installed release. Claude installed it over the installed release with `adb install -r`, and the app data stayed. The owner did the steps on the phone and reported them as good. Claude read logcat after each step: no crash and no ANR for the app.
+
+- Release 0.2.8 (versionCode 10), certificate 484d7a1d...fb91, the same as the installed release, installed over it.
+- After the install, the VPN connected again by itself in about 2 s (`dumpsys connectivity`: VPN CONNECTED, VPN:app.ombra). The RELR Rust core works with a real tunnel under GrapheneOS. OMBRA-OPT-01 is done.
+- The app shows 'Protected' after the update.
+- OMBRA-OPT-07: after a disconnect and a connect from the notification, the details sheet does not open again.
+- OMBRA-OPT-09: Wi-Fi off and on while connected is good (network part).
+- OMBRA-OPT-02 follow-up: in Stealth mode the reconnect sentence shows one time.
+- OMBRA-OPT-03: the custom DNS field stays above the keyboard.
