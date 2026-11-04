@@ -29,7 +29,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.ImageBitmap
@@ -74,11 +73,12 @@ fun SplitTunnelScreen(core: CoreSource, editor: SettingsEditor, onBack: () -> Un
     val vm = viewModel { SettingsViewModel(core, editor) }
     val state by vm.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
-    val apps = remember { InstalledApps(context.applicationContext) }
     val picker = viewModel {
+        val apps = InstalledApps(context.applicationContext)
         // Not before the settings are known: the first choice orders the rows.
-        SplitTunnelViewModel(selected = editor.settings.filterNotNull().map { it.splitApps }, loadApps = apps::launchable)
+        SplitTunnelViewModel(selected = editor.settings.filterNotNull().map { it.splitApps }, loadApps = apps::launchable, icons = apps)
     }
+    val apps = checkNotNull(picker.icons)
     val rows by picker.rows.collectAsStateWithLifecycle()
     val reducedMotion = OmbraTheme.reducedMotion
     val settings = state.settings

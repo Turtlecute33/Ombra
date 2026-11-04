@@ -203,6 +203,12 @@ impl TunnelState {
         let mut connect_failures = 0;
         // Whether the OS has a TUN from this loop, dummy or real (Ombra).
         let mut os_network_config_set = false;
+        // The tunnel broke or reconnects for a new network, and the target did not change otherwise: the TUN of the last
+        // tunnel stays while it connects again. It already captures all traffic (packets to the dead tunnel are dropped),
+        // and a dummy config would replace the VPN network two times for each reconnect (VPN-INTEGRATION-1). This holds the target that the kept TUN is for; the
+        // network is not part of it, because the TUN does not depend on it. Any other change sets the dummy again.
+        let mut kept_for: Option<TargetState> = None;
+        let tun_target = |target: &TargetState| TargetState { network_interface: None, ..target.clone() };
 
         loop {
             if let Some(last_start) = last_start {
@@ -235,6 +241,15 @@ impl TunnelState {
             if disconnect_reason.is_none() {
                 // Ombra patch P4 (D1, D2): a live tunnel follows a change of only the network where it can.
                 follow_network_change(&tunnel_state, &target_state, &client_state).await;
+            }
+
+            // A tunnel with the same args that broke or must reconnect for a new network (Handover::Reconnect).
+            let connected_with_same_args = matches!(&*tunnel_state.borrow(), TunnelState::Connected { args, relay_transport, .. }
+                if Some(args) == target_state.tunnel_args.as_ref() && *relay_transport == target_state.relay_transport);
+            if connected_with_same_args {
+                kept_for = Some(tun_target(&target_state));
+            } else if kept_for.as_ref() != Some(&tun_target(&target_state)) {
+                kept_for = None;
             }
 
             // Drop tunnel if args changed or tunnel broke and change to connecting or disconnected as desired
@@ -286,22 +301,26 @@ impl TunnelState {
                         ControlFlow::Continue(connected)
                     } else {
                         // Not connected, but target state indicates that this is possible and desired. Start capturing traffic and connect.
-                        if let Err(()) = os_impl
-                            .set_os_network_config(
-                                OsNetworkConfig::dummy(
-                                    *dns_content_block,
-                                    *use_system_dns,
-                                    #[cfg(any(target_os = "android", target_os = "linux"))]
-                                    *local_network_access,
-                                    #[cfg(target_os = "linux")]
-                                    *tailscale_bypass,
-                                    #[cfg(target_os = "linux")]
-                                    *wireguard_bypass,
-                                ),
-                                QuicWgConnPacketSender::new(None),
-                            )
-                            .await
-                        {
+                        let captured = if kept_for.is_some() && os_network_config_set {
+                            Ok(())
+                        } else {
+                            os_impl
+                                .set_os_network_config(
+                                    OsNetworkConfig::dummy(
+                                        *dns_content_block,
+                                        *use_system_dns,
+                                        #[cfg(any(target_os = "android", target_os = "linux"))]
+                                        *local_network_access,
+                                        #[cfg(target_os = "linux")]
+                                        *tailscale_bypass,
+                                        #[cfg(target_os = "linux")]
+                                        *wireguard_bypass,
+                                    ),
+                                    QuicWgConnPacketSender::new(None),
+                                )
+                                .await
+                        };
+                        if let Err(()) = captured {
                             tracing::error!(message_id = "eTwAHomq", "failed to set dummy network config");
                             tunnel_state.send_modify(|tunnel_state| tunnel_state.set_connect_error(TunnelConnectError::SetOsNetworkConfig));
                             ControlFlow::Break(())
@@ -771,8 +790,11 @@ mod tests {
     async fn speed_tunnel_reconnects_when_the_relay_ignores_the_new_network() {
         let mut path = None;
         let setup = SpeedSetup::new(|relay| path.insert(LossyPath::client_from_wireguard_handshake(relay.udp_addr)).addr);
-        let mut tunnel_state = TunnelState::new(setup.client_state.clone(), Arc::new(RecordingOs::default()));
+        let os = Arc::new(RecordingOs::default());
+        let mut tunnel_state = TunnelState::new(setup.client_state.clone(), os.clone());
         let first_tunnel_id = connect_speed_tunnel(&setup, &mut tunnel_state).await;
+        let sets = || os.calls().iter().filter(|call| **call == "set").count();
+        let sets_before = sets();
 
         setup.client_state.set_network_interface(Some(loopback(2)));
         let changed_at = Instant::now();
@@ -788,5 +810,8 @@ mod tests {
         })
         .await;
         assert_eq!(setup.api.tunnel_ids("POST").len(), 2);
+        // The TUN of the broken tunnel stays while it connects again (VPN-INTEGRATION-1): the real config for the new
+        // network, then the one of the new tunnel. A dummy config between them would make 3.
+        assert_eq!(sets() - sets_before, 2);
     }
 }

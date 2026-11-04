@@ -97,6 +97,7 @@
     <string name="error_no_internet">No internet connection. Ombra connects when the network is back.</string>
     <string name="error_no_longer_supported">This version of Ombra is too old for the Obscura servers. Update the app.</string>
     <string name="error_no_relay">Cannot reach any relay. This network may block QUIC (UDP).</string>
+    <string name="error_no_relay_tcp">Cannot reach any relay over TCP/TLS. This network may block VPN traffic.</string>
     <string name="error_no_relay_chosen">Cannot reach the entry relay that you chose.</string>
     <string name="error_no_slots">All device slots of your account are in use. Disconnect another device, or delete a WireGuard configuration on obscura.com.</string>
     <string name="error_not_logged_in">You are logged out. Log in to connect.</string>

@@ -125,7 +125,9 @@ class CoreClient(context: Context) : CoreSource {
             // The process is gone already.
         }
         appContext.unbindService(connection)
-        lost()
+        // Calls in flight stay: :vpn still replies to their callbacks, and each call fails when the
+        // :vpn process dies. A rotation or a short exit must not fail them (UI-UX-1).
+        core.value = null
     }
 
     /** See [Request] for each Ok payload. Waits up to [BIND_TIMEOUT] for the binder. */
@@ -139,10 +141,11 @@ class CoreClient(context: Context) : CoreSource {
         return try {
             withTimeout(REQUEST_TIMEOUT) {
                 suspendCancellableCoroutine { cont ->
-                    val call = PendingCall(cont)
+                    val call = PendingCall(cont, remote.asBinder())
                     pending += call
-                    cont.invokeOnCancellation { pending -= call }
+                    cont.invokeOnCancellation { call.release() }
                     try {
+                        call.watch()
                         remote.call(json, call)
                     } catch (e: RemoteException) {
                         call.fail(IpcError.DISCONNECTED)
@@ -159,13 +162,29 @@ class CoreClient(context: Context) : CoreSource {
         pending.toList().forEach { it.fail(IpcError.DISCONNECTED) }
     }
 
-    /** One reply slot; a oneway reply and a disconnect can race, so it resumes at most once. */
-    private inner class PendingCall(private val cont: CancellableContinuation<String>) : IResultCallback.Stub() {
+    /**
+     * One reply slot; a oneway reply and a disconnect can race, so it resumes at most once. It fails
+     * when the process of [peer] dies, also after an [unbind].
+     */
+    private inner class PendingCall(
+        private val cont: CancellableContinuation<String>,
+        private val peer: IBinder,
+    ) : IResultCallback.Stub(), IBinder.DeathRecipient {
         private val done = AtomicBoolean(false)
+
+        /** Throws RemoteException when the peer is dead already. */
+        fun watch() = peer.linkToDeath(this, 0)
+
+        fun release() {
+            pending -= this
+            runCatching { peer.unlinkToDeath(this, 0) }
+        }
+
+        override fun binderDied() = fail(IpcError.DISCONNECTED)
 
         override fun onResult(okJson: String?, errorCode: String?) {
             if (!done.compareAndSet(false, true)) return
-            pending -= this
+            release()
             if (errorCode != null) cont.resumeWithException(CoreRequestException(errorCode)) else cont.resume(okJson ?: "null")
         }
 

@@ -36,8 +36,8 @@ class StateFeed(
      */
     fun changes(): Map<Int, Flow<String>> = mapOf(
         StateKind.STATUS to status.distinctUntilChangedBy { it?.version }.drop(1).filterNotNull().map(::statusJson),
-        StateKind.EXITS to exits.distinctUntilChangedBy { it?.version }.drop(1).filterNotNull().map(::exitsJson),
-        StateKind.RELAYS to relays.distinctUntilChangedBy { it?.version }.drop(1).filterNotNull().map(::relaysJson),
+        StateKind.EXITS to exits.distinctUntilChangedBy { it?.version }.drop(1).filterNotNull().map { exitsJson(it) },
+        StateKind.RELAYS to relays.distinctUntilChangedBy { it?.version }.drop(1).filterNotNull().map { relaysJson(it) },
         StateKind.SETTINGS to settings.drop(1).map(::settingsJson),
         StateKind.SYSTEM to system.drop(1).map(::systemJson),
     )
@@ -53,14 +53,26 @@ class StateFeed(
 
     private fun statusJson(status: Status): String = StatusSanitizer.sanitizedJson(status)
 
-    private fun exitsJson(exits: CachedValue<ExitList>): String = IpcJson.encodeToString(EXITS, exits)
+    // The lists are large and seldom change; each new listener (each return to the app) gets the
+    // same JSON again (PERF-HARDENING-3).
+    private val exitsJson = Memo<CachedValue<ExitList>> { IpcJson.encodeToString(EXITS, it) }
 
-    private fun relaysJson(relays: CachedValue<List<OneRelay>>): String =
+    private val relaysJson = Memo<CachedValue<List<OneRelay>>> { relays ->
         IpcJson.encodeToString(RELAYS, relays.copy(value = relays.value.map { it.copy(tlsCert = "") }))
+    }
 
     private fun settingsJson(settings: Settings): String = IpcJson.encodeToString(Settings.serializer(), settings)
 
     private fun systemJson(system: SystemState): String = IpcJson.encodeToString(SystemState.serializer(), system)
+
+    /** The JSON of the last value; the flows give a new object for each change. */
+    private class Memo<T : Any>(private val encode: (T) -> String) {
+        @Volatile
+        private var last: Pair<T, String>? = null
+
+        operator fun invoke(value: T): String =
+            last?.takeIf { it.first === value }?.second ?: encode(value).also { last = value to it }
+    }
 
     private companion object {
         val EXITS: KSerializer<CachedValue<ExitList>> = CachedValue.serializer(ExitList.serializer())

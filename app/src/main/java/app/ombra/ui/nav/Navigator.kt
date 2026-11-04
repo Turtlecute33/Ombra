@@ -1,5 +1,6 @@
 package app.ombra.ui.nav
 
+import android.os.Process
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.saveable.Saver
@@ -9,8 +10,9 @@ import app.ombra.ui.settings.Licence
 /**
  * The back stack of the main shell: Connect at the bottom, at most one other tab above it, then
  * pushed screens. Back from a tab returns to Connect; back on Connect is the system's (NavDisplay
- * handles back only while there is a screen to pop). Saved with the activity state; it starts
- * fresh each time the main shell opens (after a login).
+ * handles back only while there is a screen to pop). Saved with the activity state, so it survives
+ * a configuration change. It starts fresh each time the main shell opens (after a login) and after
+ * process death: the app then opens on Connect (UI-UX-10).
  */
 class Navigator(routes: List<Route> = listOf(Route.Connect)) {
     private val stack = mutableStateListOf<Route>().apply { addAll(routes) }
@@ -36,8 +38,11 @@ class Navigator(routes: List<Route> = listOf(Route.Connect)) {
 
     companion object {
         val Saver: Saver<Navigator, List<String>> = Saver(
-            save = { navigator -> navigator.stack.map(::encode) },
-            restore = { saved -> Navigator(saved.mapNotNull(::decode).ifEmpty { listOf(Route.Connect) }) },
+            save = { navigator -> listOf(Process.myPid().toString()) + navigator.stack.map(::encode) },
+            restore = { saved ->
+                val routes = if (saved.firstOrNull() == Process.myPid().toString()) saved.drop(1).mapNotNull(::decode) else emptyList()
+                Navigator(routes.ifEmpty { listOf(Route.Connect) })
+            },
         )
 
         private fun encode(route: Route): String = when (route) {

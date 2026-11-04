@@ -153,6 +153,7 @@ class OnboardingViewModel(private val core: CoreSource) : ViewModel() {
 
     private fun show(step: OnboardingStep) {
         if (steps.size == 1 && steps[0] == step) return
+        errorCode = null
         steps.clear()
         steps += step
     }

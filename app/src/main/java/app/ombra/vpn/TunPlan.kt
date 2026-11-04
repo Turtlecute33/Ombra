@@ -3,6 +3,7 @@ package app.ombra.vpn
 import app.ombra.core.model.OsNetworkConfig
 import app.ombra.ipc.Settings
 import app.ombra.ipc.SplitMode
+import java.net.InetAddress
 
 /** An address or route with its prefix length. */
 data class Cidr(val address: String, val prefix: Int)
@@ -41,16 +42,18 @@ data class TunPlan(
             isUsableDns: (String) -> Boolean,
             isInstalled: (String) -> Boolean,
         ): TunPlan {
+            val routes = config.routes.map { Cidr(it.address, it.prefix) }
+            val dns = dnsServers(config, settings, isUsableDns)
             val plan = TunPlan(
                 mtu = config.mtu,
                 addresses = listOf(cidr(config.ipv4, IPV4_HOST_PREFIX), cidr(config.ipv6, IPV6_HOST_PREFIX)),
-                routes = config.routes.map { Cidr(it.address, it.prefix) },
-                dnsServers = dnsServers(config, settings, isUsableDns),
+                routes = routes + dnsHostRoutes(dns, routes),
+                dnsServers = dns,
                 apps = appScope(settings, ownPackage, isInstalled),
             )
-            // Fail closed: a TUN without routes captures nothing, and one without DNS servers sends
+            // Fail closed: a TUN without the routes of Rust captures nothing (the DNS host routes do not count), and one without DNS servers sends
             // queries to the resolvers of the physical network. Rust then keeps the TUN it has.
-            require(plan.routes.isNotEmpty()) { "no routes" }
+            require(routes.isNotEmpty()) { "no routes" }
             require(plan.dnsServers.isNotEmpty() || usesSystemDns(config, settings)) { "no usable DNS server" }
             return plan
         }
@@ -64,6 +67,37 @@ data class TunPlan(
             if (usesSystemDns(config, settings)) return emptyList()
             return settings.customDns.filter(isUsableDns).ifEmpty { config.dns.filter(isUsableDns) }
         }
+
+        /**
+         * With local network access on, Rust keeps only its own DNS servers inside the tunnel. A custom
+         * server in a LAN range gets a host route here, so its queries do not go in clear on the
+         * local network (VPN-INTEGRATION-5).
+         */
+        fun dnsHostRoutes(dns: List<String>, routes: List<Cidr>): List<Cidr> = dns.mapNotNull { server ->
+            val address = ipLiteral(server) ?: return@mapNotNull null
+            if (routes.any { route -> ipLiteral(route.address)?.let { covers(it, route.prefix, address) } == true }) null
+            else Cidr(server, address.size * Byte.SIZE_BITS)
+        }
+
+        /** The bytes of an IP literal; null for anything else, so that a name is never resolved. */
+        private fun ipLiteral(text: String): ByteArray? {
+            if (!IP_LITERAL.matches(text) || (':' !in text && text.count { it == '.' } != 3)) return null
+            return runCatching { InetAddress.getByName(text).address }.getOrNull()
+        }
+
+        private fun covers(network: ByteArray, prefix: Int, address: ByteArray): Boolean {
+            if (network.size != address.size) return false
+            var bits = prefix
+            for (i in network.indices) {
+                if (bits <= 0) return true
+                val mask = (0xFF shl (Byte.SIZE_BITS - bits.coerceAtMost(Byte.SIZE_BITS))) and 0xFF
+                if ((network[i].toInt() and mask) != (address[i].toInt() and mask)) return false
+                bits -= Byte.SIZE_BITS
+            }
+            return true
+        }
+
+        private val IP_LITERAL = Regex("[0-9.]+|[0-9a-fA-F:.]*:[0-9a-fA-F:.]*")
 
         private fun usesSystemDns(config: OsNetworkConfig, settings: Settings) = config.useSystemDns && settings.useSystemDns
 

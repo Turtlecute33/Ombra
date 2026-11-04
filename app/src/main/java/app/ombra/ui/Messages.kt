@@ -8,6 +8,7 @@ import app.ombra.data.StartProblem
 import app.ombra.ipc.IpcError
 import app.ombra.ui.connect.ConnectUiState
 import app.ombra.ui.connect.ErrorFix
+import app.ombra.ui.connect.Protocol
 
 /** Text for a failed request: a Rust ManagerCmdErrorCode or an [IpcError] code. */
 @StringRes
@@ -38,7 +39,11 @@ fun connectErrorText(error: ConnectErrorCode, state: ConnectUiState): Int = when
     ConnectErrorCode.InvalidAccountId -> R.string.error_invalid_account
     ConnectErrorCode.NoInternet -> R.string.error_no_internet
     ConnectErrorCode.NoLongerSupported -> R.string.error_no_longer_supported
-    ConnectErrorCode.NoRelay -> if (state.relayChosen) R.string.error_no_relay_chosen else R.string.error_no_relay
+    ConnectErrorCode.NoRelay -> when {
+        state.relayChosen -> R.string.error_no_relay_chosen
+        state.protocol == Protocol.TcpTls -> R.string.error_no_relay_tcp
+        else -> R.string.error_no_relay
+    }
     ConnectErrorCode.NoSlotsLeft -> R.string.error_no_slots
     ConnectErrorCode.NotLoggedIn -> R.string.error_not_logged_in
     ConnectErrorCode.UdpHandshakeFailed -> R.string.error_udp_handshake

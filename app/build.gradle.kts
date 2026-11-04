@@ -17,6 +17,14 @@ val signingProps = rootProject.file("keystore.properties").takeIf { buildsReleas
     Properties().apply { f.inputStream().use { load(it) } }
 }
 
+// An abbreviated task name (for example `aR`) does not match above and would give an unsigned APK
+// without a message (PERF-HARDENING-10).
+gradle.taskGraph.whenReady {
+    if (signingProps == null && rootProject.file("keystore.properties").exists() && hasTask(":app:packageRelease")) {
+        throw GradleException("Release build without signing: write the task name in full, for example assembleRelease.")
+    }
+}
+
 fun keychain(service: String): String =
     providers.exec { commandLine("security", "find-generic-password", "-s", service, "-w") }
         .standardOutput.asText.get().trim()
@@ -31,8 +39,8 @@ android {
         applicationId = "app.ombra"
         minSdk = 36
         targetSdk = 37
-        versionCode = 11
-        versionName = "0.2.9"
+        versionCode = 12
+        versionName = "0.2.10"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk {
             abiFilters += "arm64-v8a"

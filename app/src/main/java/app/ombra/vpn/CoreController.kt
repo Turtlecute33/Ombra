@@ -13,8 +13,10 @@ import app.ombra.core.model.Status
 import app.ombra.core.model.VpnStatus
 import app.ombra.ipc.IpcError
 import app.ombra.ipc.Settings
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -27,6 +29,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonObject
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.time.Duration.Companion.hours
@@ -47,6 +50,8 @@ class CoreController(
     private val vpnWanted: VpnWanted,
     private val scope: CoroutineScope,
     private val timeSource: TimeSource = TimeSource.Monotonic,
+    /** For the settings file writes, which fsync (PERF-HARDENING-7). */
+    private val io: CoroutineDispatcher = Dispatchers.IO,
 ) {
     private val started = AtomicBoolean(false)
 
@@ -87,7 +92,7 @@ class CoreController(
      */
     suspend fun updateSettings(patch: JsonObject): Settings = settingsMutex.withLock {
         val before = settingsStore.current
-        val after = settingsStore.update(patch)
+        val after = withContext(io) { settingsStore.update(patch) }
         send(SettingsSync.changes(before, after))
         if (SettingsSync.tunChanged(before, after)) {
             // A rebuild reads all current settings, so one is enough.
@@ -141,20 +146,24 @@ class CoreController(
 
     suspend fun endNewAccountFlow() = core.call(CoreCommands.setInNewAccountFlow(false))
 
-    /** Also disconnects: Rust stops the tunnel when the account goes away. */
-    suspend fun logout() {
+    /**
+     * Also disconnects: Rust stops the tunnel when the account goes away. [onLoggedOut] runs as soon as
+     * Rust logged out, also when [applyAllSettings] fails after it (SECURITY-2).
+     */
+    suspend fun logout(onLoggedOut: () -> Unit = {}) {
         vpnWanted.value = false
         try {
             core.call(CoreCommands.logout())
+            onLoggedOut()
         } finally {
             applyAllSettings()
         }
     }
 
     /** Deletes the account on the server, then logs out. */
-    suspend fun deleteAccount() {
+    suspend fun deleteAccount(onLoggedOut: () -> Unit = {}) {
         core.call(CoreCommands.apiDeleteAccount())
-        logout()
+        logout(onLoggedOut)
     }
 
     /** The new account info reaches the UI in Status.account. */

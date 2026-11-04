@@ -88,7 +88,7 @@ fun fixFor(error: ConnectErrorCode, state: ConnectUiState): ErrorFix? = when (er
     }
     ConnectErrorCode.AccountExpired,
     ConnectErrorCode.InvalidAccountId,
-    ConnectErrorCode.NoSlotsLeft,
     -> ErrorFix.OpenAccount
+    // The Account page has no device slots; the error text tells what to do (UI-UX-2).
     else -> null
 }

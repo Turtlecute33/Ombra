@@ -203,27 +203,38 @@ pub extern "C" fn Java_app_ombra_core_ffi_Native_initialize(
     j_persist_logs: jboolean,
 ) -> jobject {
     tracing::info!(message_id = "PRXlxa85", "starting ffi initialization");
-    let mut first_init = false;
-    let global = GLOBAL.get_or_init(|| {
-        first_init = true;
-        let class_cache = ClassCache::new(&mut env).expect("creating class cache failed");
-        let persist_logs = j_persist_logs != JNI_FALSE;
-        let global = initialize(
-            &mut env,
-            &j_config_dir,
-            &j_user_agent,
-            &j_wg_secret_key,
-            &j_config_key,
-            persist_logs,
-            class_cache,
-        )
-        .expect("`initialize` failed");
-        tracing::info!(message_id = "Y6cNkZXW", "ffi initialized");
-        global
-    });
-    if !first_init {
-        tracing::error!(message_id = "sxsEyRKH", "ffi was already initialized")
-    }
+    let global = match GLOBAL.get() {
+        Some(global) => {
+            tracing::error!(message_id = "sxsEyRKH", "ffi was already initialized");
+            global
+        }
+        // A failure throws to Java, which shows the "cannot start" alert (OMBRA-SEC-004). A panic would abort
+        // the process (panic = "abort") before Java can catch anything (VPN-INTEGRATION-4).
+        None => match ClassCache::new(&mut env).and_then(|class_cache| {
+            let persist_logs = j_persist_logs != JNI_FALSE;
+            initialize(
+                &mut env,
+                &j_config_dir,
+                &j_user_agent,
+                &j_wg_secret_key,
+                &j_config_key,
+                persist_logs,
+                class_cache,
+            )
+        }) {
+            Ok(global) => {
+                tracing::info!(message_id = "Y6cNkZXW", "ffi initialized");
+                GLOBAL.get_or_init(|| global)
+            }
+            Err(_) => {
+                // No error text: it can hold paths of the app.
+                tracing::error!(message_id = "Hq3vN8sT", "ffi initialization failed");
+                clear_pending_exception(&mut env);
+                let _ = env.throw_new("java/lang/IllegalStateException", "Rust initialization failed");
+                return std::ptr::null_mut();
+            }
+        },
+    };
     env.new_object(global.class_cache.ffi_handle(), "()V", &[])
         .expect("failed to create FfiHandle")
         .into_raw()

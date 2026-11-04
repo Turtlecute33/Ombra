@@ -1,5 +1,6 @@
 package app.ombra.ui.nav
 
+import android.os.Process
 import androidx.compose.runtime.saveable.SaverScope
 import app.ombra.ui.settings.Licence
 import kotlin.test.Test
@@ -50,7 +51,12 @@ class NavigatorTest {
         assertEquals(nav.backStack.toList(), Navigator.Saver.restore(saved)?.backStack?.toList())
         assertEquals(nav.backStack.map { it.tab }, listOf(Tab.Connect, Tab.Settings, null, null, null))
 
-        val stale = listOf("connect", "settings", "page:Gone", "licence:Gone", "elsewhere")
+        val pid = Process.myPid().toString()
+        val stale = listOf(pid, "connect", "settings", "page:Gone", "licence:Gone", "elsewhere")
         assertEquals(listOf(Route.Connect, Route.Settings), Navigator.Saver.restore(stale)?.backStack?.toList())
+
+        // Saved by an earlier process: the app opens on home (UI-UX-10).
+        val earlierProcess = listOf("$pid-earlier", "connect", "settings")
+        assertEquals(listOf(Route.Connect), Navigator.Saver.restore(earlierProcess)?.backStack?.toList())
     }
 }

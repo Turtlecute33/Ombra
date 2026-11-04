@@ -102,10 +102,8 @@ fun MainShell(core: CoreSource, editor: SettingsEditor, tunnel: TunnelControl, p
                             tunnel = tunnel,
                             onChooseEntry = { nav.select(Route.Locations(LocationSide.Entry)) },
                             onChooseExit = { nav.select(Route.Locations(LocationSide.Exit)) },
-                            onOpenAccount = {
-                                nav.select(Route.Settings)
-                                nav.push(Route.SettingsPage(Page.Account))
-                            },
+                            // Back from Account returns to the error on Connect (UI-UX-6).
+                            onOpenAccount = { nav.push(Route.SettingsPage(Page.Account)) },
                             contentPadding = padding,
                         )
                     }

@@ -109,7 +109,9 @@ for abi in $ABIS; do
   SECONDS=0
   # Not cargo-ndk -o: it also copies dependency cdylibs (libneptun-*.so, libtun_rs-*.so) and does not strip.
   # --frozen: Cargo.lock as it is, and no network. A missing crate fails here instead of a download.
-  cargo +$CHANNEL ndk -t $abi -P $ANDROID_API build --lib --frozen $profile_args
+  # rustc --crate-type cdylib: Cargo turns LTO off when it also builds the rlib and staticlib types of
+  # Cargo.toml (PERF-HARDENING-1).
+  cargo +$CHANNEL ndk -t $abi -P $ANDROID_API rustc --lib --crate-type cdylib --frozen $profile_args
   build_time=$SECONDS
 
   src=$CARGO_TARGET_DIR/$triple/$PROFILE/$LIB

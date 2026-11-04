@@ -56,7 +56,8 @@ class ConnectViewModel(
         .map { it?.vpnStatus is VpnStatus.Connected }
         .distinctUntilChanged()
         .flatMapLatest { connected -> if (connected) pollStats() else flowOf(null) }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(), null)
+        // The timeout keeps the rate samples over a rotation (PERF-HARDENING-8).
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MS), null)
 
     init {
         viewModelScope.launch {

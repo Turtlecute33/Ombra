@@ -10,6 +10,7 @@ import app.ombra.core.model.TunnelArgs
 import app.ombra.core.model.VpnStatus
 import app.ombra.ipc.IpcError
 import app.ombra.ipc.Settings
+import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
@@ -45,7 +46,7 @@ class CoreControllerTest {
     private val store by lazy { SettingsStore(tmp.root).apply { update { stored } } }
     private val wanted by lazy { VpnWanted(File(tmp.root, "vpn_wanted")) }
 
-    private fun TestScope.controller() = CoreController(core, store, wanted, backgroundScope, testScheduler.timeSource)
+    private fun TestScope.controller() = CoreController(core, store, wanted, backgroundScope, testScheduler.timeSource, StandardTestDispatcher(testScheduler))
 
     private fun patch(build: JsonObjectBuilder.() -> Unit): JsonObject = buildJsonObject(build)
 

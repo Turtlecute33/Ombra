@@ -80,15 +80,20 @@ class LocationsViewModel(
     var errorCode by mutableStateOf<String?>(null)
         private set
 
+    // Shared, so that a side switch does not group and sort the full list again (PERF-HARDENING-4).
     private val exitTree = core.exits
         .map { list -> list?.value?.exits?.map { it.toServer() } }
         .distinctUntilChanged()
         .map { servers -> servers?.let(::tree) }
+        .flowOn(compute)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MS), null)
 
     private val relayTree = core.relays
         .map { list -> list?.value?.map { it.toServer() } }
         .distinctUntilChanged()
         .map { servers -> servers?.let(::tree) }
+        .flowOn(compute)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MS), null)
 
     val state: StateFlow<LocationsUiState> = sideState
         .flatMapLatest(::sideUiState)
@@ -144,7 +149,7 @@ class LocationsViewModel(
     private fun sideUiState(side: LocationSide): Flow<LocationsUiState> {
         val inUseId = core.status.map { status ->
             (status?.vpnStatus as? VpnStatus.Connected)?.let { if (side == LocationSide.Exit) it.exit.id else it.relay.id }
-        }
+        }.distinctUntilChanged()
         val picker = combine(queryState, toggled, editor.settings, inUseId) { query, toggled, settings, inUse ->
             val chosen = settings ?: Settings()
             Picker(

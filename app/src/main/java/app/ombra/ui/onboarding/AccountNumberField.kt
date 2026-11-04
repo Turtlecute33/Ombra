@@ -1,5 +1,7 @@
 package app.ombra.ui.onboarding
 
+import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.InputConnection
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.border
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -34,7 +36,9 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.InterceptPlatformTextInput
 import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.platform.PlatformTextInputMethodRequest
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.contentType
@@ -86,25 +90,52 @@ fun AccountNumberField(
                     )
                 }
             }
-            BasicTextField(
-                state = state,
-                inputTransformation = AccountDigits,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword, imeAction = ImeAction.Done),
-                onKeyboardAction = KeyboardActionHandler { onDone() },
-                lineLimits = TextFieldLineLimits.SingleLine,
-                interactionSource = interaction,
-                textStyle = OmbraTextStyles.mono.copy(color = Color.Transparent),
-                cursorBrush = SolidColor(Color.Transparent),
-                modifier = Modifier
-                    .matchParentSize()
-                    .focusRequester(focus)
-                    .semantics {
-                        contentDescription = label
-                        contentType = ContentType.Password
-                    },
-            )
+            NoPersonalizedLearning {
+                BasicTextField(
+                    state = state,
+                    inputTransformation = AccountDigits,
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.NumberPassword,
+                        imeAction = ImeAction.Done,
+                        autoCorrectEnabled = false,
+                    ),
+                    onKeyboardAction = KeyboardActionHandler { onDone() },
+                    lineLimits = TextFieldLineLimits.SingleLine,
+                    interactionSource = interaction,
+                    textStyle = OmbraTextStyles.mono.copy(color = Color.Transparent),
+                    cursorBrush = SolidColor(Color.Transparent),
+                    modifier = Modifier
+                        .matchParentSize()
+                        .focusRequester(focus)
+                        .semantics {
+                            contentDescription = label
+                            contentType = ContentType.Password
+                        },
+                )
+            }
         }
     }
+}
+
+/**
+ * Asks the keyboard not to learn from this field: the account number is the only credential
+ * (SECURITY-4). Compose has no option for the EditorInfo flag, so add it to the request.
+ */
+@Composable
+private fun NoPersonalizedLearning(content: @Composable () -> Unit) {
+    InterceptPlatformTextInput(
+        interceptor = { request, next ->
+            next.startInputMethod(
+                object : PlatformTextInputMethodRequest by request {
+                    override fun createInputConnection(outAttributes: EditorInfo): InputConnection =
+                        request.createInputConnection(outAttributes).also {
+                            outAttributes.imeOptions = outAttributes.imeOptions or EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING
+                        }
+                },
+            )
+        },
+        content = content,
+    )
 }
 
 /** Digits only, at most 20: pasted text with spaces or dashes becomes a clean number. */

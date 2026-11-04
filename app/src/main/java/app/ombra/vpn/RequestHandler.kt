@@ -64,8 +64,8 @@ class RequestHandler(
         is Request.Login -> controller.login(request.accountNumber).let { JSON_NULL }
         is Request.CreateAccount -> jsonString(controller.createAccount(request.referral))
         Request.EndNewAccountFlow -> controller.endNewAccountFlow().let { JSON_NULL }
-        Request.Logout -> controller.logout().also { forgetAccountFiles() }.let { JSON_NULL }
-        Request.DeleteAccount -> controller.deleteAccount().also { forgetAccountFiles() }.let { JSON_NULL }
+        Request.Logout -> controller.logout(::forgetAccountFiles).let { JSON_NULL }
+        Request.DeleteAccount -> controller.deleteAccount(::forgetAccountFiles).let { JSON_NULL }
         Request.RefreshAccount -> controller.refreshAccount().let { JSON_NULL }
         Request.ServiceStatus -> IpcJson.encodeToString(ServiceStatus.serializer(), core.call(CoreCommands.apiServiceStatus()))
         Request.RevealAccountNumber -> jsonString(controller.accountNumber())

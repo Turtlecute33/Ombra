@@ -137,10 +137,8 @@ fun ConnectScreen(
                     text = stringResource(R.string.battery_hint),
                     tone = NoticeTone.Info,
                     actionLabel = stringResource(R.string.battery_hint_action),
-                    onAction = {
-                        prefs.dismissBatteryHint()
-                        openExternal(context, appDetailsIntent(context))
-                    },
+                    // The hint goes away by itself when the restriction is removed (UI-UX-3).
+                    onAction = { openExternal(context, appDetailsIntent(context)) },
                     onDismiss = prefs::dismissBatteryHint,
                 )
                 Spacer(Modifier.height(Spacing.m))

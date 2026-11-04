@@ -143,7 +143,9 @@ class ConnectViewModelTest {
         assertEquals(1_250_000, vm.stats.value?.downBytesPerSecond)
         assertEquals(125_000, vm.stats.value?.upBytesPerSecond)
 
+        // The polling stops when the stop timeout ends, so a rotation keeps the samples.
         collector.cancel()
+        advanceTimeBy(5_001)
         val polls = core.requests.count { it == Request.TrafficStats }
         advanceTimeBy(5_000)
         assertEquals(polls, core.requests.count { it == Request.TrafficStats })

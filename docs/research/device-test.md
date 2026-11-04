@@ -155,3 +155,19 @@ is left out). One run per row, 8 s per test.
 
 CPU time per GB downloaded: the official app 315 s (first test above, another network), Ombra 0.2.1 about 23 s in
 Speed mode and about 25 s in Stealth (from the per-thread CPU of the runs above).
+
+## Review fixes on the phone (0.2.10 code, 2026-11-05, Pixel 9 Pro XL, Stealth with padding, always-on + lockdown)
+
+Estimates, one to three runs each.
+
+- Update over the release install: Android restarted the always-on VPN; the VPN network was up again after about 6 s.
+  No crash in the log.
+- Cold start of the UI process (`am start -W`, `:vpn` running, AOT `speed`): about 435 ms (431-438, 3 runs). Fonte on
+  the same phone: about 490 ms. The 300 ms goal of DESIGN is not met by this metric on this phone; the other Compose
+  apps do not meet it either.
+- Locations list fling: 0.4 % janky frames, 99th percentile 9 ms.
+- Rotation on Connect: the live rates go on (PERF-HARDENING-8). Rotation on a settings page keeps the page; after the
+  UI process is killed, the app opens on Connect (UI-UX-10).
+- Wi-Fi off, then on (Stealth): the VPN network stayed the same (no new `establish()`); pings stopped for about 2 s at
+  Wi-Fi off and not at all at Wi-Fi on. This was a QUIC rebind, so the kept-TUN reconnect (VPN-INTEGRATION-1) did not
+  run; only the Rust test covers it.

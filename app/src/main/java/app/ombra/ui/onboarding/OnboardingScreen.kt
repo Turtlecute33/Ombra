@@ -31,6 +31,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.activity.compose.BackHandler
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -92,6 +93,8 @@ fun OnboardingScreen(core: CoreSource) {
             entry<OnboardingStep.NewAccount> { NewAccount(vm) }
         },
     )
+    // While a request runs, back does nothing; take it here so that no predictive-back preview starts (UI-UX-8).
+    BackHandler(enabled = vm.busy) {}
 }
 
 @Composable
@@ -204,7 +207,6 @@ private fun Login(vm: OnboardingViewModel) {
     val digits = vm.accountInput.text.toString()
     val check = AccountNumberInput.check(digits)
     val clipboard = LocalClipboard.current
-    val context = LocalContext.current
     val scope = rememberCoroutineScope()
     Page(
         onBack = vm::back,
@@ -236,7 +238,8 @@ private fun Login(vm: OnboardingViewModel) {
             )
             TextButton(onClick = {
                 scope.launch {
-                    val text = clipboard.getClipEntry()?.clipData?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(context)
+                    // Plain text only, capped: coerceToText would read a content URI on the main thread (SECURITY-1).
+                    val text = clipboard.getClipEntry()?.clipData?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.text?.take(PASTE_MAX)
                     if (text != null) vm.accountInput.setTextAndPlaceCursorAtEnd(AccountNumberInput.sanitize(text))
                 }
             }) {
@@ -433,5 +436,8 @@ private fun NumberCard(number: String?, busy: Boolean, onReveal: () -> Unit) {
 
 /** Three groups on the first line, two on the second: the number fits a phone at large font sizes. */
 private const val GROUPS_PER_LINE = 3
+
+/** More than enough for a formatted account number with spaces or dashes. */
+private const val PASTE_MAX = 64
 
 private const val MASKED_GROUP = "••••"

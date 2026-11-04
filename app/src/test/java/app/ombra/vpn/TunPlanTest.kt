@@ -55,6 +55,16 @@ class TunPlanTest {
         assertEquals(1420, plan.mtu)
     }
 
+    /** LAN access on: Rust leaves the LAN ranges out of the routes (VPN-INTEGRATION-5). */
+    @Test
+    fun customDnsInALanRangeGetsAHostRoute() {
+        val lanAccess = dummy.copy(routes = listOf(Route("0.0.0.0", 5), Route("11.0.0.0", 8), Route("2000::", 3), Route("10.64.0.99", 32)))
+        val plan = plan(lanAccess, Settings(customDns = listOf("192.168.1.1", "11.2.3.4", "fd00::53", "2620:fe::fe")))
+        assertEquals(lanAccess.routes.map { Cidr(it.address, it.prefix) } + listOf(Cidr("192.168.1.1", 32), Cidr("fd00::53", 128)), plan.routes)
+        // Routes that cover everything need no host route.
+        assertEquals(listOf(Cidr("0.0.0.0", 0), Cidr("::", 0)), plan(settings = Settings(customDns = listOf("192.168.1.1", "fd00::53"))).routes)
+    }
+
     @Test
     fun customDnsReplacesTheTunnelDns() {
         val plan = plan(settings = Settings(customDns = listOf("9.9.9.9", "2620:fe::fe")))

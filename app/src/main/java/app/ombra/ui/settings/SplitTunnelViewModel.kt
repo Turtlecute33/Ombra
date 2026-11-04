@@ -7,6 +7,7 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.ombra.data.InstalledApp
+import app.ombra.data.InstalledApps
 import app.ombra.ui.locations.searchKey
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -57,6 +58,8 @@ class SplitTunnelViewModel(
     loadApps: suspend () -> List<InstalledApp>,
     /** Filters the list off the main thread. */
     compute: CoroutineDispatcher = Dispatchers.Default,
+    /** The icon cache of the rows; here, so that it survives a rotation (PERF-HARDENING-5). Null in tests. */
+    val icons: InstalledApps? = null,
 ) : ViewModel() {
     private val installed = MutableStateFlow<List<InstalledApp>?>(null)
     private val queryState = MutableStateFlow("")
