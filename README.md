@@ -74,22 +74,23 @@ Links, for example the payment page, open in your browser.
 
 ## Results
 
-Pixel 9 Pro XL, Android 17, one 5 GHz Wi-Fi network. Official Obscura app v1.181 against Ombra 0.2.1,
-both through the same entry relay. The numbers are **estimates**: one or two 8 s runs per cell, on a
-network that varied by up to 30 % between runs.
+Pixel 9 Pro XL, Android 17, one 5 GHz Wi-Fi network: about 1.2 Gbit/s down and 600 Mbit/s up
+without a VPN. Official Obscura app v1.185 against Ombra 0.2.10, exits in the same city. The numbers
+are **estimates**: the median of three 10 s runs per cell, all configs in random order.
 
-| | Official app | Ombra, Stealth with padding | Ombra, Speed |
-|---|---|---|---|
-| Download, 4 streams | ~30 Mbit/s | **~270 Mbit/s** (~9x) | **~270 Mbit/s** (~9x) |
-| Download, 1 stream | ~40 Mbit/s | **~270 Mbit/s** (~7x) | **~270 Mbit/s** (~7x) |
-| Upload, 4 streams | ~85 Mbit/s | **~240 Mbit/s** (~3x) | **~260 Mbit/s** (~3x) |
-| Ping during an upload | ~110 to 250 ms | **~25 to 55 ms** | **~50 ms** |
-| Idle ping | ~18 ms | ~18 ms | ~18 ms |
-| CPU time per GB downloaded | ~300 s | **~25 s** | **~23 s** |
+| | Official app | Ombra, Stealth with padding | Ombra, Speed | Ombra, TCP/TLS |
+|---|---|---|---|---|
+| Download, 4 streams | ~30 Mbit/s | **~400 Mbit/s** (~13x) | **~405 Mbit/s** (~13x) | **~475 Mbit/s** (~16x) |
+| Download, 1 stream | ~50 Mbit/s | **~325 Mbit/s** (~6x) | **~335 Mbit/s** (~7x) | **~390 Mbit/s** (~8x) |
+| Upload, 4 streams | ~70 Mbit/s | **~165 Mbit/s** (~2.4x) | **~390 Mbit/s** (~6x) | **~420 Mbit/s** (~6x) |
+| Ping during an upload | ~430 to 470 ms | **~27 ms** | **~37 ms** | **~48 ms** |
+| Idle ping | ~21 ms | ~25 ms | ~25 ms | ~25 ms |
+| CPU time per GB downloaded | ~225 s | **~19 s** | **~20 s** | **~20 s** |
 
 The official app ran with its default settings (padding off); with padding on it gave the same
-speeds. Its CPU time comes from a test on another day. Raw numbers and method:
-[docs/research/device-test.md](docs/research/device-test.md).
+speeds. On 2 of its 6 connects it chose UDP port 53 and fell to about 5 Mbit/s; the medians include
+these runs. The WireGuard app with the Obscura config gave about 290 Mbit/s down (4 streams) and
+225 Mbit/s up. Raw numbers and method: [docs/research/device-test.md](docs/research/device-test.md).
 
 ## Build
 

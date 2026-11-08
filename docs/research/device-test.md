@@ -171,3 +171,68 @@ Estimates, one to three runs each.
 - Wi-Fi off, then on (Stealth): the VPN network stayed the same (no new `establish()`); pings stopped for about 2 s at
   Wi-Fi off and not at all at Wi-Fi on. This was a QUIC rebind, so the kept-TUN reconnect (VPN-INTEGRATION-1) did not
   run; only the Rust test covers it.
+
+## All configs again on a faster line (Ombra 0.2.10, 2026-11-08)
+
+Pixel 9 Pro XL, Android 17, charging, screen on. Another Wi-Fi network: 5 GHz 802.11ax, -58 dBm, link 864/1729
+Mbit/s. Without a VPN the line gave about 1.2 Gbit/s down and 600 Mbit/s up. Ombra 0.2.10 (release), the official
+app v1.185, the WireGuard app 1.0.20260315 with the Obscura portal config. All configs used Mullvad exits in the same
+city. Ombra and the WireGuard app used an entry relay in the same country. The official app chose its relay at each
+connect.
+
+### Method
+
+- The same Go probe (rebuilt), 10 s per test, "steady" drops the first 3 s. Downloads: an NDK zip from
+  `dl.google.com`, with other NDK zips and then Cloudflare `__down` as fallbacks. Uploads: Cloudflare `__up`.
+  RTT: TCP handshake to speed.cloudflare.com, idle and every 250 ms during the transfer.
+- 3 rounds, all 8 configs in random order each round. CPU: utime + stime of the VPN process (for the WireGuard
+  app, its only process).
+- Always-on and lockdown were off for the test, and on again for Ombra after it.
+
+### Results (median of 3 runs, Mbit/s; the No VPN and WireGuard downloads have 4 runs)
+
+| Config | Down, 4 streams | Down, 1 stream | Up, 4 streams | Idle RTT p50 | Loaded RTT p50, down / up | CPU-s/GB down | CPU-s/GB up |
+|---|---|---|---|---|---|---|---|
+| No VPN | 1201 | 445 | 607 | 16 ms | 36 / 67 ms | - | - |
+| WireGuard app | 292 | 440 | 224 | 25 ms | 74 / 40 ms | 43 | 67 |
+| Ombra Speed (MTU 1420) | 405 | 333 | 392 | 25 ms | 35 / 37 ms | 20 | 26 |
+| Ombra Stealth | 440 | 327 | 168 | 28 ms | 37 / 26 ms | 19 | 52 |
+| Ombra Stealth + padding | 400 | 323 | 166 | 25 ms | 37 / 27 ms | 19 | 54 |
+| Ombra TCP/TLS | 476 | 391 | 418 | 25 ms | 41 / 48 ms | 20 | 27 |
+| Official app, padding off | 30 | 51 | 70 | 21 ms | 70 / 469 ms | 224 | 150 |
+| Official app, padding on | 28 | 39 | 74 | 27 ms | 137 / 428 ms | 276 | 146 |
+
+Single runs, down 4 streams / down 1 stream / up 4 streams:
+
+- No VPN: 1208, 1193, 1213, 925 / 485, 529, 405, 384 / 598, 623, 607
+- WireGuard app: 289, 296, 299, 282 / 420, 440, 440, 497 / 224, 231, 224
+- Ombra Speed: 405, 381, 428 / 341, 333, 269 / 388, 445, 392
+- Ombra Stealth: 440, 349, 457 / 383, 308, 327 / 173, 160, 168
+- Ombra Stealth + padding: 384, 428, 400 / 286, 363, 323 / 166, 189, 164
+- Ombra TCP/TLS: 530, 476, 461 / 391, 434, 365 / 418, 363, 444
+- Official app, padding off: 31, 24, 30 / 51, 36, 61 / 75, 4, 70
+- Official app, padding on: 29, 5, 28 / 39, 6, 52 / 74, 4, 88
+
+### Findings
+
+1. Ombra downloads with 4 streams are faster than the WireGuard app in all modes (400 to 476 against 292 Mbit/s),
+   with a lower loaded RTT (p95 47 to 113 ms against 141 to 256 ms). With 1 stream the WireGuard app is faster
+   (440 against 323 to 391 Mbit/s).
+2. Stealth upload stays at about 160 to 190 Mbit/s, with or without padding. On the slower line of 2026-10-23 it was
+   177 to 209 Mbit/s. Thus this is a limit of the Stealth path, not of the line: about 27 % of this line. Stealth
+   uses about 2 times the CPU per GB uploaded of Speed and TCP/TLS (52 to 54 s against 26 to 27 s). Speed and TCP/TLS
+   upload at about 65 to 70 % of the line.
+3. TCP/TLS was the fastest mode on this line (476 down, 418 up), with a higher loaded RTT (48 ms during uploads).
+   VERIFY: a possible cause is that the outer TCP flow gets kernel offloads (TSO, GRO) and kernel congestion control.
+4. Padding had no measurable cost on this line (Stealth against Stealth + padding: in the noise).
+5. Official app v1.185: about 30 Mbit/s down and 70 up, 11 to 15 times the CPU per GB downloaded of Ombra, and
+   430 to 470 ms loaded RTT during uploads. It chose UDP port 53 on 2 of 6 connects: 4 to 6 Mbit/s and about 2 s
+   loaded RTT (finding 1 of 2026-10-22; Ombra avoids port 53 since P6). On 1 connect it chose a relay in another
+   country (idle RTT 86 ms). Its medians include these runs.
+6. One of the three exit servers in the exit city got `404` from `dl.google.com` for all NDK files (IPv4 and IPv6);
+   Cloudflare worked through it. Ombra chose that exit on 2 of 6 test connects. The cause is on the exit side, not in
+   Ombra. Those runs were done again through another exit.
+7. With lockdown off in Android settings, the Ombra Connect page still said "Android blocks all traffic until Ombra
+   connects again". This is the stale Always-on and lockdown display that is open since 2026-10-23.
+
+Not tested: mobile data, other phones.
