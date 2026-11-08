@@ -8,7 +8,7 @@ description: |
 
   - **Three protocols**: Stealth (WireGuard in QUIC), Speed (WireGuard over UDP) and TCP/TLS,
     through the two-hop Obscura relay.
-  - **Faster data path**: in our tests, downloads are about 9x faster than with the official app
+  - **Faster data path**: in our tests, downloads are about 13x faster than with the official app
     (estimate).
   - **Control**: choose the entry relay and the exit, DNS content blocking, split tunnelling,
     kill switch status and a Quick Settings tile.

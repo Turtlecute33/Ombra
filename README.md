@@ -15,7 +15,7 @@ Android 16 or newer (API 36), arm64.
 **Speed**
 
 - **A data path for phones.** TUN writes run in their own thread, the Rust core uses one worker thread,
-  and its threads get normal Linux scheduling. This is the largest gain: downloads about 9x faster.
+  and its threads get normal Linux scheduling. This is the largest gain: downloads about 13x faster.
 - **Speed mode.** Plain WireGuard over UDP through the same two-hop relay, for networks that do not
   block WireGuard. Networks can see it and can tell which exit server you use. The relay cannot
   check that packets come from you.
