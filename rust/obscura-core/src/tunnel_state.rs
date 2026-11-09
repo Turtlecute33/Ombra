@@ -421,10 +421,12 @@ impl TunnelState {
                             .await
                         {
                             tracing::error!(message_id = "t7QzSTGu", tunnel.id =% tunnel_id, "failed to set network config");
-                            tunnel_state.send_modify(|tunnel_state| tunnel_state.set_connect_error(TunnelConnectError::SetOsNetworkConfig));
-                            // A failed connect too (Ombra patch P9): each attempt makes an API tunnel. Close this one
-                            // before the wait.
-                            drop((conn, connected));
+                            // A failed connect too (Ombra patch P9): each attempt makes an API tunnel. The tunnel
+                            // closes, also one that was connected before this config (P20): nothing reads from it now.
+                            tunnel_state.send_modify(|tunnel_state| {
+                                tunnel_state.set_connecting(target_args, &target_state.network_interface, None);
+                                tunnel_state.set_connect_error(TunnelConnectError::SetOsNetworkConfig);
+                            });
                             connect_failures += 1;
                         } else {
                             os_network_config_set = true;
