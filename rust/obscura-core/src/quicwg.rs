@@ -5,6 +5,7 @@ use futures::Stream;
 use futures::StreamExt;
 use futures::stream::unfold;
 use obscuravpn_api::relay_protocol::{MessageCode, MessageContext, MessageHeader, PROTOCOL_IDENTIFIER, RelayOpCode, RelayResponseCode};
+use obscuravpn_api::wg_fragment::WgFragmentHeaderData;
 use obscuravpn_api::wg_fragment::merge::{ReassembleResult, WgFragmentBuffer};
 use obscuravpn_api::wg_fragment::split::WgMessageFragmenter;
 use quinn::crypto::rustls::QuicClientConfig;
@@ -1319,10 +1320,15 @@ impl WgReceiver {
 }
 
 /// Without a fragment buffer every message is whole: a message in the fragment format then fails to decrypt.
+///
+/// The buffer keeps a fragment until its other half comes, which can be never. A datagram from quinn is a slice of the
+/// allocation of its whole receive batch (up to 64 KiB), so a fragment goes into the buffer as a copy (Ombra patch P21).
 fn reassemble(fragment_buffer: Option<&mut WgFragmentBuffer>, wg_message: Bytes) -> ReassembleResult {
     match fragment_buffer {
-        Some(fragment_buffer) => fragment_buffer.reassemble(wg_message),
-        None => ReassembleResult::NotFragmented(wg_message),
+        Some(fragment_buffer) if WgFragmentHeaderData::from_message(&wg_message).is_some() => {
+            fragment_buffer.reassemble(Bytes::copy_from_slice(&wg_message))
+        }
+        _ => ReassembleResult::NotFragmented(wg_message),
     }
 }
 
@@ -1664,6 +1670,19 @@ mod tests {
             ReassembleResult::Reassembled(whole) if whole == message
         ));
         assert!(matches!(reassemble(None, first.clone()), ReassembleResult::NotFragmented(kept) if kept == first));
+    }
+
+    #[test]
+    fn a_buffered_fragment_does_not_keep_its_receive_batch() {
+        let (first, _) = WgMessageFragmenter::default().fragment(Bytes::from(vec![4u8; usize::from(TUNNEL_MTU) + 32]), 1200);
+        // As quinn gives it: a slice of the buffer that holds every datagram of one receive call.
+        let batch = Bytes::from([first.as_ref(), &[0u8; 4096]].concat());
+        let mut fragment_buffer = WgFragmentBuffer::new(WG_FRAGMENT_BUFFER_LEN, WG_FRAGMENT_MAX_SIZE);
+        assert!(matches!(
+            reassemble(Some(&mut fragment_buffer), batch.slice(..first.len())),
+            ReassembleResult::UnmatchedFragment { .. }
+        ));
+        assert!(batch.is_unique());
     }
 
     /// A UDP packet from the client that the test exit drops, so that nothing comes back.
