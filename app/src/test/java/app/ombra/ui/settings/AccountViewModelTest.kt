@@ -42,10 +42,21 @@ class AccountViewModelTest {
     fun theNumberShowsOnlyWhileRevealed() = runTest(dispatcher) {
         val vm = AccountViewModel(core)
         assertNull(vm.number)
+        vm.onUnlocked()
         vm.reveal()
         advanceUntilIdle()
         assertEquals(number, vm.number)
         vm.hideNumber()
+        assertNull(vm.number)
+    }
+
+    @Test
+    fun aNumberThatComesAfterTheScreenStoppedIsDropped() = runTest(dispatcher) {
+        val vm = AccountViewModel(core)
+        vm.onUnlocked()
+        vm.reveal()
+        vm.endVisit()
+        advanceUntilIdle()
         assertNull(vm.number)
     }
 

@@ -57,7 +57,8 @@ class AccountViewModel(
         unlocked = true
     }
 
-    fun reveal() = launchRequest { number = requireNumber() }
+    /** An answer that comes after the visit ended is dropped: the next visit starts with a prompt. */
+    fun reveal() = launchRequest { number = requireNumber().takeIf { unlocked } }
 
     fun hideNumber() {
         number = null
