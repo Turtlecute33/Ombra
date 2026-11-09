@@ -153,6 +153,8 @@ val buildRustCore = tasks.register<Exec>("buildRustCore") {
         },
     ).withPropertyName("rustSources").withPathSensitivity(PathSensitivity.RELATIVE)
     inputs.files(script).withPropertyName("buildScript").withPathSensitivity(PathSensitivity.RELATIVE)
+    // The script reads it: without this, a release build keeps the library of an earlier dev-fast build.
+    inputs.property("rustProfile", providers.environmentVariable("OMBRA_RUST_PROFILE").orElse("release"))
     outputs.file(layout.projectDirectory.file("src/main/jniLibs/arm64-v8a/libobscuravpn_client.so"))
         .withPropertyName("library")
 
