@@ -7,4 +7,7 @@ ignore = [
     { id = "RUSTSEC-2026-0368", reason = "extraction only; the core only writes zips" },
     { id = "RUSTSEC-2026-0369", reason = "extraction only; the core only writes zips" },
     { id = "RUSTSEC-2026-0429", reason = "ZipArchive::extract only; the core only writes zips" },
+    # pin-utils 0.1.0 comes only through futures-util 0.3.31. The advisory is about its archived
+    # repository, not about a defect, and has no version with a fix.
+    { id = "RUSTSEC-2026-0441", reason = "unmaintained notice with no defect; a dependency of futures-util" },
 ]
