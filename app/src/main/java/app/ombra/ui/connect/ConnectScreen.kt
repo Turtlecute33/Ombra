@@ -85,6 +85,8 @@ fun ConnectScreen(
     val connect = {
         vm.onConnectRequested()
         tunnel.connect()
+        // The same problem as at the last start gives no new value above.
+        if (tunnel.problem.value != null) vm.onStartFailed()
     }
     Column(
         modifier = Modifier
