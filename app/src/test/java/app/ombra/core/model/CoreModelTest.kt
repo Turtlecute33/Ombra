@@ -367,12 +367,12 @@ class CoreModelTest {
     }
 
     @Test
-    fun longPollsHaveNoTimeout() {
+    fun longPollsAndTheLoginHaveNoTimeout() {
         assertNull(CoreCommands.getStatus(null).timeout)
         assertNull(CoreCommands.getExitList(null).timeout)
         assertNull(CoreCommands.getRelayList(null).timeout)
         assertEquals(CoreCommands.LOCAL_TIMEOUT, CoreCommands.ping().timeout)
-        assertEquals(CoreCommands.API_TIMEOUT, CoreCommands.login("1").timeout)
+        assertNull(CoreCommands.login("1").timeout)
     }
 
     @Test

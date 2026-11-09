@@ -12,7 +12,7 @@ import kotlin.time.Duration.Companion.seconds
 
 /**
  * One typed core command: the wire command, how to decode its Ok payload, and how long to wait.
- * [timeout] is null for long-polls, which return only when the value changes.
+ * [timeout] is null for long-polls, which return only when the value changes, and for the login.
  */
 class CoreCall<out R> internal constructor(
     val command: ManagerCmd,
@@ -58,9 +58,14 @@ object CoreCommands {
 
     fun ping() = CoreCall(ManagerCmd.Ping, LOCAL_TIMEOUT, ::decodeUnit)
 
-    /** [accountNumber] must be the normalized 20 digits. validate = true fetches a token (network). */
+    /**
+     * [accountNumber] must be the normalized 20 digits. validate = true fetches a token (network).
+     * No timeout: Rust goes on after one, and it sets its config back to the defaults when the
+     * login then succeeds. The caller applies the settings after the result, so it must get it.
+     * The API client of Rust ends each request by itself.
+     */
     fun login(accountNumber: String, validate: Boolean = true) =
-        CoreCall(ManagerCmd.Login(accountNumber, validate), API_TIMEOUT, ::decodeUnit)
+        CoreCall(ManagerCmd.Login(accountNumber, validate), null, ::decodeUnit)
 
     fun logout() = CoreCall(ManagerCmd.Logout, LOCAL_TIMEOUT, ::decodeUnit)
 
