@@ -88,6 +88,9 @@ const LIVENESS_MTU: u16 = 100;
 const WG_DATA_MESSAGE_OVERHEAD: usize = 32;
 const WG_ENCAPSULATE_MIN_SPACE: usize = 148;
 
+/// The time between two log lines for a WireGuard error of one place in the code.
+const WG_ERROR_LOG_SILENCE: Duration = Duration::from_secs(5);
+
 /// Maximum number of fragments in the WireGuard fragment buffer.
 ///
 /// 1Gb/s (not counting tunnel overhead) at 1350B per message results in a message frequency below 100k/s.
@@ -227,12 +230,10 @@ impl WgState {
                 }
                 wg_message.len()
             }
-            TunnResult::Done => {
-                tracing::error!(message_id = "10g8g1D1", "WG encapsulate did not yield a datagram to send");
-                return;
-            }
+            // WireGuard has no session and keeps the packet for the one that the handshake in progress gives.
+            TunnResult::Done => return,
             TunnResult::Err(error) => {
-                tracing::warn!(message_id = "MAvGA9tf", ?error, "wireguard error");
+                rate_limited_log!(WG_ERROR_LOG_SILENCE, tracing::warn!(message_id = "MAvGA9tf", ?error, "wireguard error"));
                 return;
             }
             TunnResult::WriteToTunnelV4(_, _) | TunnResult::WriteToTunnelV6(_, _) => {
@@ -525,8 +526,9 @@ impl QuicWgConn {
                 WgOutput::MessageSent
             }
             TunnResult::WriteToTunnelV4(packet, ..) | TunnResult::WriteToTunnelV6(packet, ..) => WgOutput::Packet(packet.len()),
+            // Also for each datagram that does not decrypt, which any host on the path can send (Ombra patch P23).
             TunnResult::Err(error) => {
-                tracing::warn!(message_id = "uQ0xQcPP", ?error, "wireguard error");
+                rate_limited_log!(WG_ERROR_LOG_SILENCE, tracing::warn!(message_id = "uQ0xQcPP", ?error, "wireguard error"));
                 WgOutput::Done
             }
         }
