@@ -984,11 +984,17 @@ impl ClientStateHandle {
         Ok(cached_relays)
     }
 
-    pub fn update_account_info(&self, account_info: &AccountInfo) {
+    /// Only into the config of `account_id` (Ombra patch P18), as [`Self::cache_auth_token`]: an answer that comes after a logout
+    /// or an account change must not put the info of the old account, with its account number, into the next config.
+    pub fn update_account_info(&self, account_id: &AccountId, account_info: &AccountInfo) {
         let response_time = SystemTime::now();
         let last_updated_sec = response_time.duration_since(UNIX_EPOCH).unwrap_or(Duration::ZERO).as_secs();
         let account = Some(AccountStatus { account_info: account_info.clone(), last_updated_sec });
-        self.change_config(|config| config.cached_account_status = account);
+        self.change_config(|config| {
+            if config.account_id.as_ref() == Some(account_id) {
+                config.cached_account_status = account;
+            }
+        });
     }
 
     // Only intended to be called after use (on disconnect). Rotation schedules are fairly arbitrary, so using the key one more time is fine. The benefit is that we don't trigger rotation if the user stops using the client, but the client is still auto-starting. This does not imply the effect of `Self::register_cached_wireguard_key_if_new`. It's the callers responsibility to ensure that registration is triggered asap.
@@ -1370,6 +1376,27 @@ mod tests {
         client_state.set_account_id(Some((a, None))).unwrap();
         client_state.cache_auth_token(&account_id, &api_client);
         assert_eq!(client_state.borrow().config().cached_auth_token.as_deref(), Some("test-token-a"));
+    }
+
+    #[test]
+    fn account_info_goes_only_into_the_config_of_its_account() {
+        let dir = tempdir().unwrap();
+        let client_state = client_state(dir.path());
+        let [a, b] = ["test-account-a", "test-account-b"].map(|id| AccountId::from_string_unchecked(id.into()));
+        let info = crate::kotlin_contract_test::account_info();
+        let cached = || client_state.borrow().config().cached_account_status.is_some();
+        client_state.set_account_id(Some((a.clone(), None))).unwrap();
+
+        client_state.set_account_id(Some((b, None))).unwrap();
+        client_state.update_account_info(&a, &info);
+        assert!(!cached());
+        client_state.set_account_id(None).unwrap();
+        client_state.update_account_info(&a, &info);
+        assert!(!cached(), "also not after a logout");
+
+        client_state.set_account_id(Some((a.clone(), None))).unwrap();
+        client_state.update_account_info(&a, &info);
+        assert!(cached());
     }
 
     /// Ombra patch P5 on the loopback interface, with stand-ins for the API and the relay: the race over QUIC, the

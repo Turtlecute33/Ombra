@@ -281,8 +281,9 @@ impl Manager {
     }
 
     pub async fn get_account_info(&self) -> Result<AccountInfo, ApiError> {
-        let account_info = self.api_request(GetAccountInfo()).await?;
-        self.client_state.update_account_info(&account_info);
+        let (account_id, api_client) = self.client_state.account_api_client()?;
+        let account_info = self.client_state.api_request_with(&account_id, &api_client, GetAccountInfo()).await?;
+        self.client_state.update_account_info(&account_id, &account_info);
         Ok(account_info)
     }
 

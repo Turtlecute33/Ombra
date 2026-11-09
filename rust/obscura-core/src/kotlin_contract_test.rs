@@ -94,7 +94,7 @@ fn speed_tunnel_args() -> TunnelArgs {
     }
 }
 
-fn account_info() -> AccountInfo {
+pub(crate) fn account_info() -> AccountInfo {
     AccountInfo {
         active: true,
         apple_subscription: None,
