@@ -84,10 +84,28 @@ class CoreClient(context: Context) : CoreSource {
         }
     }
 
+    /** The binder of the :vpn process that sent the last state, watched also after [unbind]. */
+    @Volatile
+    private var watched: IBinder? = null
+
+    /**
+     * A :vpn process that dies after [unbind] gives no onServiceDisconnected, and its tunnel is gone:
+     * without this, the old status ("Protected") shows until the new process pushes one.
+     */
+    private val death = object : IBinder.DeathRecipient {
+        override fun binderDied() = Unit
+
+        override fun binderDied(who: IBinder) {
+            if (who === watched) statusState.value = null
+        }
+    }
+
     private val connection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName, binder: IBinder) {
             val remote = IOmbraCore.Stub.asInterface(binder)
             try {
+                if (binder !== watched) binder.linkToDeath(death, 0)
+                watched = binder
                 remote.addListener(listener)
             } catch (e: RemoteException) {
                 return
