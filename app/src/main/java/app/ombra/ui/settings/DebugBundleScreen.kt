@@ -59,7 +59,8 @@ fun DebugBundleScreen(core: CoreSource, onBack: () -> Unit) {
             BUNDLE_FACTS.forEach { (icon, text) -> Fact(icon, stringResource(text)) }
             OutlinedTextField(
                 value = feedback,
-                onValueChange = { feedback = it },
+                // The text goes into the saved state and into one binder call.
+                onValueChange = { feedback = it.take(MAX_FEEDBACK_CHARS) },
                 label = { Text(stringResource(R.string.bundle_feedback)) },
                 placeholder = { Text(stringResource(R.string.bundle_feedback_hint)) },
                 enabled = step is BundleStep.Consent || step is BundleStep.Failed,
@@ -117,6 +118,8 @@ private fun share(context: Context, path: String) {
     send.clipData = ClipData.newRawUri(null, uri)
     context.startActivity(Intent.createChooser(send, context.getString(R.string.bundle_share)))
 }
+
+private const val MAX_FEEDBACK_CHARS = 4000
 
 private val BUNDLE_FACTS = listOf(
     Icons.Globe to R.string.bundle_fact_probes,
