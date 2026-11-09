@@ -23,6 +23,7 @@ use crate::os::os_trait::Os;
 use crate::quicwg::{QuicWgConnPacketSender, QuicWgReceiveError, QuicWgTrafficStats};
 use crate::relay_selection::RelayTransport;
 use crate::udp_tunnel::handshake_retry_delay;
+use crate::wake_instant::WakeInstant;
 use crate::{client_state::ClientState, manager::TunnelArgs, quicwg::QuicWgConn};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -199,8 +200,10 @@ impl TunnelState {
         let mut os_network_config_refresh = 0;
         // Failed Speed mode handshakes in a row (Ombra patch P5).
         let mut udp_handshake_failures = 0;
-        // Other failed connects in a row (Ombra patch P9).
+        // Other failed connects in a row (Ombra patch P9), and tunnels that broke soon after the connect (P19).
         let mut connect_failures = 0;
+        // When the last tunnel connected (P19).
+        let mut connected_at = WakeInstant::now();
         // Whether the OS has a TUN from this loop, dummy or real (Ombra).
         let mut os_network_config_set = false;
         // The tunnel broke or reconnects for a new network, and the target did not change otherwise: the TUN of the last
@@ -326,11 +329,23 @@ impl TunnelState {
                             ControlFlow::Break(())
                         } else {
                             os_network_config_set = true;
-                            match poll_until_change(
-                                &mut client_state_watch,
-                                &target_state,
-                                client_state.connect(target_args, relay_transport, Some(target_network_interface), &mut selection_state),
-                            )
+                            // The wait after failed connects in a row (Ombra patch P9). A change of the target state
+                            // ends it and starts over.
+                            let retry_delay = connect_retry_delay(connect_failures);
+                            if !retry_delay.is_zero() {
+                                tracing::info!(
+                                    message_id = "pW3kRf8e",
+                                    failures = connect_failures,
+                                    delay_s = retry_delay.as_secs(),
+                                    "waiting before the next connect"
+                                );
+                            }
+                            match poll_until_change(&mut client_state_watch, &target_state, async {
+                                retry_wait(retry_delay).await;
+                                client_state
+                                    .connect(target_args, relay_transport, Some(target_network_interface), &mut selection_state)
+                                    .await
+                            })
                             .await
                             {
                                 None => {
@@ -338,6 +353,7 @@ impl TunnelState {
                                         message_id = "SmLhzVwY",
                                         "target state or tunnel arguments changed while trying to connect"
                                     );
+                                    connect_failures = 0;
                                     ControlFlow::Break(())
                                 }
                                 Some(Err(error)) => {
@@ -361,21 +377,6 @@ impl TunnelState {
                                         }
                                     } else {
                                         connect_failures += 1;
-                                        let delay = connect_retry_delay(connect_failures);
-                                        if !delay.is_zero() {
-                                            tracing::info!(
-                                                message_id = "pW3kRf8e",
-                                                failures = connect_failures,
-                                                delay_s = delay.as_secs(),
-                                                "waiting before the next connect"
-                                            );
-                                            if poll_until_change(&mut client_state_watch, &target_state, retry_wait(delay))
-                                                .await
-                                                .is_none()
-                                            {
-                                                connect_failures = 0;
-                                            }
-                                        }
                                     }
                                     ControlFlow::Break(())
                                 }
@@ -387,6 +388,7 @@ impl TunnelState {
                                     );
                                     selection_state = ExitSelectionState::default();
                                     udp_handshake_failures = 0;
+                                    connected_at = WakeInstant::now();
                                     ControlFlow::Continue(Connected {
                                         conn: Arc::new(connection.conn),
                                         exit: connection.exit,
@@ -424,17 +426,8 @@ impl TunnelState {
                             // before the wait.
                             drop((conn, connected));
                             connect_failures += 1;
-                            let delay = connect_retry_delay(connect_failures);
-                            if !delay.is_zero()
-                                && poll_until_change(&mut client_state_watch, &target_state, retry_wait(delay))
-                                    .await
-                                    .is_none()
-                            {
-                                connect_failures = 0;
-                            }
                         } else {
                             os_network_config_set = true;
-                            connect_failures = 0;
                             tunnel_state.send_modify(|tunnel_state| {
                                 tunnel_state.set_connected(target_args, target_network_interface, relay_transport, connected)
                             });
@@ -455,6 +448,8 @@ impl TunnelState {
                                 // Guard 2 of the MTU floor: reconnect without the floor on this network.
                                 client_state.set_mtu_floor_failed();
                             }
+                            let up_time = WakeInstant::now().saturating_duration_since(connected_at);
+                            connect_failures = failures_after_tunnel(connect_failures, disconnect_reason.is_some(), up_time);
                         }
                     }
                 }
@@ -595,6 +590,21 @@ fn connect_retry_delay(failures: u32) -> Duration {
     Duration::from_secs((1u64 << doublings) - 1).min(Duration::from_secs(29))
 }
 
+/// A tunnel that lived this long worked. One that breaks sooner counts as a failed connect.
+const STABLE_TUNNEL_TIME: Duration = Duration::from_secs(15);
+
+/// The failed connects in a row after a tunnel ended (Ombra patch P19). A tunnel that `broke` soon after its connect
+/// adds one. Upstream starts over at each connect, so a path that lets the handshake through and then drops the tunnel
+/// gives a full connect, with its relay race and API tunnel, every few seconds without end. `up_time` includes sleep:
+/// a tunnel that dies while the phone sleeps did not break soon.
+fn failures_after_tunnel(failures: u32, broke: bool, up_time: Duration) -> u32 {
+    if broke && up_time < STABLE_TUNNEL_TIME {
+        failures.saturating_add(1)
+    } else {
+        0
+    }
+}
+
 // Run future, until complete or until the watch channel signals a change.
 async fn poll_until_change<O>(watch: &mut Receiver<ClientState>, target_state: &TargetState, fut: impl Future<Output = O>) -> Option<O> {
     select! {
@@ -643,6 +653,17 @@ mod tests {
         let delays: Vec<u64> = (1..=8).map(|failures| connect_retry_delay(failures).as_secs()).collect();
         assert_eq!(delays, [0, 1, 3, 7, 15, 29, 29, 29]);
         assert_eq!(connect_retry_delay(u32::MAX), Duration::from_secs(29));
+    }
+
+    #[test]
+    fn a_tunnel_that_breaks_soon_counts_as_a_failed_connect() {
+        let soon = STABLE_TUNNEL_TIME - Duration::from_secs(1);
+        assert_eq!(failures_after_tunnel(0, true, soon), 1);
+        assert_eq!(failures_after_tunnel(4, true, soon), 5);
+        assert_eq!(failures_after_tunnel(4, true, STABLE_TUNNEL_TIME), 0, "a tunnel that worked starts over");
+        assert_eq!(failures_after_tunnel(4, false, soon), 0, "a new target starts over");
+        // The first reconnect has no wait, as after a handover that failed.
+        assert!(connect_retry_delay(1).is_zero());
     }
 
     #[tokio::test]
