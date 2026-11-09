@@ -95,6 +95,10 @@ pub fn load(config_dir: &Path, key_store: &WgKeyStore) -> Result<Config, ConfigL
 /// [`load`] of a file that `key` encrypts (Ombra patch P13). A plain text file, from an older version, is written
 /// again encrypted at once, and its plain text backups are deleted.
 pub fn load_with_key(config_dir: &Path, key_store: &WgKeyStore, key: Option<&ConfigKey>) -> Result<Config, ConfigLoadError> {
+    // A process that was killed in the middle of a save left its temporary file, a copy of the config with the account
+    // number and the auth token (Ombra patch P22). Only a new process can find one, so this is the place to delete it.
+    delete_files(config_dir, |name| name.starts_with(TEMP_PREFIX));
+
     let path = Path::new(config_dir).join(CONFIG_FILE);
 
     let err = match try_load(&path, key) {
@@ -164,18 +168,22 @@ pub fn load_with_key(config_dir: &Path, key_store: &WgKeyStore, key: Option<&Con
 
 const BACKUP_PREFIX: &str = "config-backup-";
 
+/// The name prefix of the `NamedTempFile` that a save writes before the rename.
+const TEMP_PREFIX: &str = ".tmp";
+
 /// Deletes the copies of config files that did not parse (Ombra). They can hold an account number and an auth token,
 /// so they must not stay after a logout or an account change.
 pub fn delete_backups(config_dir: &Path) {
+    delete_files(config_dir, |name| name.starts_with(BACKUP_PREFIX) && name.ends_with(".json"));
+}
+
+fn delete_files(config_dir: &Path, is_copy: impl Fn(&str) -> bool) {
     let Ok(entries) = fs::read_dir(config_dir) else { return };
     for entry in entries.flatten() {
-        let name = entry.file_name();
-        let Some(name) = name.to_str() else { continue };
-        if name.starts_with(BACKUP_PREFIX)
-            && name.ends_with(".json")
+        if entry.file_name().to_str().is_some_and(&is_copy)
             && let Err(error) = fs::remove_file(entry.path())
         {
-            tracing::error!(message_id = "Rb2nXc6M", ?error, "could not delete a config backup");
+            tracing::error!(message_id = "Rb2nXc6M", ?error, "could not delete a copy of the config");
         }
     }
 }

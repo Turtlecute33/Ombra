@@ -140,6 +140,19 @@ fn a_plain_text_config_is_encrypted_when_it_loads() {
     assert!(backups(dir.as_ref()).is_empty());
 }
 
+/// Ombra patch P22: a load deletes the temporary file of a save that a process kill stopped.
+#[test]
+fn a_load_deletes_the_temporary_file_of_an_interrupted_save() {
+    let config = random_config();
+    let dir = tempdir().unwrap();
+    save(dir.as_ref(), &config).unwrap();
+    let (_, leftover) = tempfile::NamedTempFile::new_in(dir.as_ref()).unwrap().keep().unwrap();
+    assert!(leftover.exists());
+
+    assert_eq!(load(dir.as_ref(), &WgKeyStore::Plaintext).unwrap(), config);
+    assert!(!leftover.exists());
+}
+
 /// Ombra patch P13: Java gives a new key only when the old one is gone, so the file can never open again. It resets
 /// like a file that does not parse, and its copy stays encrypted.
 #[test]
