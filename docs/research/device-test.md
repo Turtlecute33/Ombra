@@ -236,3 +236,226 @@ Single runs, down 4 streams / down 1 stream / up 4 streams:
    connects again". This is the stale Always-on and lockdown display that is open since 2026-10-23.
 
 Not tested: mobile data, other phones.
+
+## Losses in the data path (0.2.12, 2026-11-10)
+
+Pixel 9 Pro XL, Android 17, charging, Stealth with padding, always-on and lockdown on. Another Wi-Fi network: 5 GHz
+802.11ax, -59 dBm, link 1152/1921 Mbit/s. The line without a VPN was not measured. All numbers are estimates.
+
+### Method
+
+- The same Go probe, 10 s per test, "steady" drops the first 3 s. Kernel counters before and after each test:
+  `Tcp: RetransSegs` and `Udp: RcvbufErrors` (`/proc/net/snmp`), the drops of the TUN device (`/proc/net/dev`).
+- A test build (not committed) logged each second: quinn's path stats, the packets that quinn's datagram send queue
+  dropped, the drops and the longest length of the TUN write queue, the time of each TUN write. A system property
+  switched each change on and off in the installed build, so most comparisons ran on one connection.
+- A new connection can get another exit server of the city, and the exits differ. The last table installs the old
+  and the new build in turn, 3 rounds.
+
+### Findings
+
+1. Upload, old build: the QUIC path lost 0 packets and had 0 congestion events. The kernel counted 182 TCP
+   retransmits in 10 s, and quinn's datagram send queue (256 KiB) dropped 181 packets. Thus all upload losses were
+   drops of that queue. The worker thread used about 55 % of a core and the TUN writer about 45 %.
+2. Cause 1, the TUN reader (fixed, P24): after a batch of 100 packets the TUN is still readable and the reader task
+   read the next batch at once. quinn sends at most 20 datagrams each time its connection task runs. With a yield
+   after a full batch the queue dropped nothing between the events of finding 3.
+3. Cause 2, quinn's BBR (open): at the start of each upload and every 10 s after that, the window fell to about 50
+   to 140 KB for 200 ms or more (ProbeRTT with a stale bandwidth estimate, quinn-proto 0.11.19). The queue dropped
+   130, 975 and 1236 packets at 0, 10 and 20 s of a 25 s upload, and the rate fell from about 350 to about 210
+   Mbit/s each time.
+4. No congestion controller in place of BBR (a window of `u64::MAX`), with the yield: on Wi-Fi the upload with 4
+   streams was about 300 Mbit/s and flat from the first second (1 stream about 215). On mobile data (uplink about
+   20 Mbit/s) the ping during an upload was 1.2 to 2.2 s in 3 of 4 runs, against 0.2 to 0.3 s with BBR, also with
+   a UDP send buffer of 128 KiB. BBR keeps the queue in front of the radio short. Thus BBR stays.
+5. Download, old build: the TUN write queue (1024 packets) dropped 2500 to 7000 packets in 10 s, while the writer
+   thread used about 40 % of a core. Single TUN writes took up to 15 ms (10 to 30 writes each second took 1 ms or
+   more): the writer waited for a CPU about 36 % of the time it wanted to run. Packets also come in bursts: up to
+   1500 in 10 ms, against about 400 on average.
+6. Queue length, one connection, 3 rounds, download with 4 streams (Mbit/s; ping during the download p50/p95):
+
+   | Queue | Runs | Drops in 10 s | Ping |
+   |---|---|---|---|
+   | 1024 | 339, 398, 424 | 3800 to 7200 | 36-43 / 65-74 ms |
+   | 2048 | 559, 519, 447 | 1800 to 5800 | 43-46 / 67-100 ms |
+   | 4096 | 633, 577, 445 | 0, 0, 750 | 44-55 / 65-122 ms |
+   | 8192 | 719, 456, 454 | 0 | 42-45 / 67-79 ms |
+
+   The longest queue was about 3700 packets, so 4096 is sufficient (P25).
+7. Idle ping, sparse traffic: with one ping each 2 s, most pings took about 75 ms; with one each 0.2 to 0.5 s, 25
+   to 28 ms. Speed mode gave the same. The Wi-Fi packet counters show the cause: after about 1 s without traffic,
+   the first packet left the phone 36 to 40 ms after Ombra sent it (the Wi-Fi power save of the phone). Ombra
+   cannot change this. One part was Ombra's: the first packet after a second of silence waited 2 ms behind its
+   liveness probe (P26).
+
+### Old against new build (Wi-Fi, interleaved, 3 rounds, Mbit/s steady)
+
+Both builds have BBR. The old build is the 0.2.11 code.
+
+| Test | 0.2.11 | 0.2.12 | Median |
+|---|---|---|---|
+| Upload, 4 streams | 134, 144, 176 | 263, 219, 287 | 144 -> 263 |
+| Upload, 1 stream | 105, 72, 107 | 144, 127, 143 | 105 -> 143 |
+| Download, 4 streams | 370, 403, 488 | 487, 627, 491 | 403 -> 491 |
+| Download, 1 stream | 320, 200, 356 | 301, 456, 467 | 320 -> 456 |
+| CPU-s/GB, upload, 4 streams | 62, 53, 51 | 38, 45, 35 | 53 -> 38 |
+| CPU-s/GB, download, 4 streams | 20, 16, 17 | 16, 17, 16 | no change |
+| Idle ping p50 | 25, 30, 29 ms | 25, 29, 28 ms | no change |
+| Ping during upload, 4 streams, p50 / p95 | 26/35, 26/34, 27/36 ms | 31/43, 29/42, 31/44 ms | +4 / +8 ms |
+| Ping during download, 4 streams, p50 / p95 | 35/63, 35/68, 36/57 ms | 41/71, 39/67, 36/59 ms | +4 / +4 ms |
+| Ping during download, 1 stream, p50 / p95 | 35/57, 31/60, 33/58 ms | 32/57, 34/57, 39/75 ms | no change |
+
+An earlier run of the same comparison (the new build then also without BBR) gave downloads of 325, 500, 328 against
+547, 556, 646 Mbit/s with 4 streams and 340, 363, 334 against 450, 468, 450 with 1 stream.
+
+In the new build the upload losses that remain between the BBR events are drops of the kernel TUN queue (500
+packets, the newest packet): 0 to 770 in 10 s. During downloads the kernel UDP receive buffer overflows more often
+at the higher rate (375 to 1560 `RcvbufErrors` in 10 s against 0 to 340).
+
+Speed mode as a check (build with the longer queue and the yield): upload 358 and 380, download 435 and 506
+(4 streams), 359 (1 stream).
+
+### Mobile data (LTE, uplink about 20 Mbit/s, upload with 4 streams, one or two runs each)
+
+| Build | Upload | Ping during the upload p50 / p95 | TCP retransmits |
+|---|---|---|---|
+| 0.2.11 code | 20, 22 Mbit/s | 212/234, 334/432 ms | 431, 1816 |
+| 0.2.12 | 16 Mbit/s | 223/316 ms | 210 |
+| Without BBR | 23 Mbit/s | 1183/2186 ms (5 s run: 1121/2139 ms) | 4967 |
+| Without BBR, UDP send buffer 128 KiB | 15 Mbit/s | 1363/2493 ms | 3078 |
+| Without BBR, UDP send buffer 512 KiB | 14 Mbit/s | 93/157 ms | 4 |
+
+The idle ping on mobile data was about 54 ms. The runs differ much; the last row shows it.
+
+### Tried and not kept
+
+- No congestion controller in place of BBR: finding 4.
+- The worker and the TUN writer on the CPUs 4 to 6 (`sched_setaffinity`): downloads in the noise, uploads not faster.
+  The network receive softirq of this phone runs on the CPUs 4 and 5.
+- A wait for room in the TUN write queue (the packets then wait in quinn's receive buffer, which drops the oldest):
+  about 11 % faster downloads, less than the longer queue.
+- A block of the worker thread when the TUN write queue is full: as fast as the longer queue (500 to 660 Mbit/s),
+  but the worker then reads no packets from the TUN, and the kernel TUN queue dropped 500 to 1700 upload packets
+  in 10 s.
+- A UDP receive buffer of 1 MiB with that block: 190 to 260 Mbit/s.
+
+### Open
+
+- quinn's BBR at the start of an upload and every 10 s (finding 3). A fix must keep the short queue on a slow uplink.
+  Fixed on the same day, see the next section (P27).
+- Speed mode on mobile data is not tested. It has no congestion control and a UDP send buffer of 2 MiB.
+
+Not tested: other phones, TCP/TLS mode, downloads on mobile data.
+
+## More relays, BBR without ProbeRTT, receive buffer (0.2.12, 2026-11-10, afternoon)
+
+The same phone, Wi-Fi network and settings as the section above (link about 1200/2100 Mbit/s, -57 dBm). All
+numbers are estimates, Mbit/s "steady" (the first 3 s dropped), 10 s per test if not stated.
+
+### Method
+
+- "Old" is the 0.2.11 code and "morning build" is P24 to P26. Both were installed in turn (2 rounds) on four pairs of
+  entry relay and exit, which the Locations screen set.
+- A test build (not committed) had a copy of quinn's BBR with a log of its state each second, and system properties
+  that switched ProbeRTT off and set the size of the UDP receive buffer. Thus the BBR comparisons ran on one
+  connection.
+- The upload host sometimes stopped to read a request (always at 10 747 904 bytes; the kernel counted zero-window
+  probes and no timeouts). This came more often with a fast start of the upload. The probe now cancels a request
+  that moves no byte for 1.5 s. On mobile data this watchdog must be off: it cancels slow, correct requests.
+
+### Old against morning build on four pairs (2 rounds each)
+
+| Entry / exit | Upload, 4 streams | Download, 4 streams | Download, 1 stream | Upload, 1 stream |
+|---|---|---|---|---|
+| Zürich / Milan | 158, 202 -> 215, 228 | 367, 354 -> 544, 521 | 263, 313 -> 426, 424 | 87, 67 -> 106, 183 |
+| Frankfurt / Frankfurt | 156, 139 -> 62, 189 | 314 -> 349 | 292 -> 352 | 70, 68 -> 17, 92 |
+| Milan / Zurich | 135, 192 -> 244, 258 | 355, 408 -> 510, 523 | 330, 317 -> 444, 327 | 97, 114 -> 39, 143 |
+| Atlanta / Atlanta (ping about 130 to 200 ms) | 84, 52 -> 119, 79 | 266, 304 -> 350, 273 | 167, 163 -> 197, 201 | 18, 36 -> 54, 30 |
+
+- The morning build was faster in 13 of the 16 averages.
+- Frankfurt: the uploads of 62 and 17 came on one connection (relay FRA-002, exit de-fra-wg-404). A second
+  connection to this pair gave 57 and 22 with the test build, and its log showed a BBR window of 1 to 50 MB with
+  about 0.3 MB in flight. Thus Ombra did not limit these uploads. In round 2 the downloads gave no result with both
+  builds (exit de-fra-wg-405).
+- The upload with 1 stream changed much from run to run with both builds. The cause is the next finding.
+
+### quinn's BBR (P27)
+
+1. The bandwidth estimate of quinn's BBR was 31 to 38 Mbit/s while the path carried about 300. quinn calls `on_ack`
+   for each packet of an ACK frame with the same time, so a sample is one packet divided by the time between two
+   ACK frames.
+2. Outside ProbeRTT this BBR did not limit the fast path: its window was 1 MB to 1 GB (the term for ACK aggregation
+   grows when the estimate is too low).
+3. In ProbeRTT the window is 0.75 times the estimate times the minimum RTT: about 60 KB, for 200 ms or more, at the
+   first ACK that is not app-limited (the start of each upload after a quiet time) and every 10 s after that. An
+   upload with 4 streams started at 60 to 80 Mbit/s and needed about 9 s to come to 300.
+4. Stock BBR against the same code without ProbeRTT, on one connection:
+
+   | Entry / exit | Upload, 1 stream | Upload, 4 streams |
+   |---|---|---|
+   | Zürich / Milan, 3 rounds | 148, 129, 141 -> 240, 191, 244 | 250, 192, 227 -> 385, 332, 290 |
+   | Frankfurt / Frankfurt, 2 rounds of 12 s | 113, 92 -> 183, 170 | 244, 276 -> 342, 342 |
+   | Milan / Zurich, 2 rounds of 12 s | 115, 100 -> 161 (one run stopped by the upload host) | 266, 287 -> 325, 281 |
+   | Atlanta / Atlanta, 3 rounds | 58, 57, 50 -> 89, 59, 62 | 112, 74, 164 -> 139, 160, 70 |
+
+   Without ProbeRTT, an upload with 4 streams ran at 280 to 410 Mbit/s from the first second (Zürich / Milan).
+   Each TCP retransmit was then a drop of the kernel TUN queue (500 packets): the phone is the limit. Downloads with
+   4 streams, 4 runs each in changed order: 662, 531, 605, 627 with stock BBR and 609, 668, 660, 566 without ProbeRTT.
+5. Mobile data (uplink about 25 Mbit/s, idle ping about 49 ms), upload with 4 streams, one connection, in turn:
+
+   | | Upload | Ping during the upload p50 / p95 |
+   |---|---|---|
+   | Stock BBR, 2 runs of 8 s | 23, 28 | 406/482, 507/1512 ms |
+   | Without ProbeRTT, 2 runs of 8 s | 27, 23 | 417/533, 631/690 ms |
+   | Stock BBR, 3 runs with the probe watchdog on | 27, 20, 29 | 923/2297, 650/727, 500/607 ms |
+   | Without ProbeRTT, 3 runs with the probe watchdog on | 13, 25, 25 | 1246/2208, 467/625, 457/518 ms |
+
+   No difference that is larger than the change from run to run. The ping was higher than in the morning (0.2 to
+   0.3 s) for both. The test used about 456 MB of mobile data.
+
+### UDP receive buffer (P28)
+
+Zürich / Milan with one exit server, a new connection for each run, 4 and 8 MiB in turn, download with 4 streams:
+
+| Buffer | Runs | Median | `RcvbufErrors` in 10 s | Ping during the download p50 / p95 (median) |
+|---|---|---|---|---|
+| 4 MiB | 434, 487, 543, 508, 548, 312, 364, 416 | about 460 | 300 to 2080 | 44 / 77 ms |
+| 8 MiB | 578, 659, 372, 650, 653, 549, 411, 608 | about 590 | 0 to 390 | 45 / 102 ms |
+
+8 MiB was faster in 7 of the 8 pairs. Download with 1 stream, 3 runs each: 389, 443, 484 against 449, 419, 437 (no
+change). 8 MiB is the `rmem_max` of this phone.
+
+### 0.2.11 code against the final build (P24 to P28), Zürich / Milan, interleaved, 3 rounds
+
+| Test | 0.2.11 | 0.2.12 | Median |
+|---|---|---|---|
+| Upload, 4 streams | 166, 186, 172 | 357, 295, 361 | 172 -> 357 |
+| Upload, 1 stream | 99, 89, 133 | 167, 177, 262 | 99 -> 177 |
+| Download, 4 streams | 322, 412, 294 | 678, 573, 687 | 322 -> 678 |
+| Download, 1 stream | 325, 361, 309 | 421, 486, 479 | 325 -> 479 |
+| CPU-s/GB, upload, 4 streams | 55, 49, 53 | 28, 33, 29 | 53 -> 29 |
+| CPU-s/GB, download, 4 streams | 22, 19, 22 | 14, 16, 15 | 22 -> 15 |
+| Idle ping p50 | 29, 29, 29 ms | 30, 25, 28 ms | no change |
+| Ping during upload, 4 streams, p50 / p95 | 26/39, 26/34, 26/35 ms | 31/41, 31/45, 33/42 ms | +5 / +7 ms |
+| Ping during download, 4 streams, p50 / p95 | 35/63, 36/79, 32/67 ms | 38/65, 44/82, 51/91 ms | +9 / +15 ms |
+| Ping during download, 1 stream, p50 / p95 | 34/54, 32/59, 34/54 ms | 36/72, 41/91, 37/62 ms | +3 / +18 ms |
+
+The exit was a city, so each connection got one of three exit servers. With the final build the kernel counted no
+`RcvbufErrors`, and each TCP retransmit of an upload was a drop of the kernel TUN queue.
+
+### Tried and not kept
+
+- A small controller of our own in place of BBR (window = the largest delivery rate of the last 8 round trips times
+  the minimum RTT plus 0.1 s; also 4 times the minimum RTT): about equal to BBR without ProbeRTT near the relay, but
+  on the Atlanta pair uploads stayed at 35 to 47 Mbit/s against 60 to 160. The window follows the rate, and the
+  inner TCP then does not grow.
+- A wrapper around quinn's `Bbr` that hides ProbeRTT: not possible. The 10 s timer of `Bbr` starts again only when
+  ProbeRTT starts, and without the "app-limited" flag `Bbr` never leaves Startup.
+
+### Open
+
+- The bandwidth estimate of quinn's BBR (finding 1) is not corrected. It decides the window on a slow uplink.
+- Relay FRA-002 with exit de-fra-wg-404: slow uploads, cause not known (not Ombra's congestion control).
+- Speed mode on mobile data is not tested.
+
+Not tested: other phones, TCP/TLS mode, downloads on mobile data, P28 on mobile data.

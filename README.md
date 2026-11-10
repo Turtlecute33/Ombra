@@ -92,6 +92,12 @@ speeds. On 2 of its 6 connects it chose UDP port 53 and fell to about 5 Mbit/s; 
 these runs. The WireGuard app with the Obscura config gave about 290 Mbit/s down (4 streams) and
 225 Mbit/s up. Raw numbers and method: [docs/research/device-test.md](docs/research/device-test.md).
 
+Ombra 0.2.12 against 0.2.11 on the same phone and another Wi-Fi network, Stealth with padding (estimates,
+the median of three interleaved runs): upload with 4 streams about 170 -> 355 Mbit/s, upload with 1
+stream about 100 -> 175 Mbit/s, download with 4 streams about 320 -> 680 Mbit/s, download with 1 stream
+about 325 -> 480 Mbit/s. The ping during a transfer with 4 streams went up by about 5 ms (upload) and
+9 ms (download).
+
 ## Build
 
 Requirements: JDK 21, Android SDK 37, NDK 28.0.13004108, Rust 1.89.0 with the
