@@ -37,6 +37,11 @@ impl Tun {
         };
         // Reads until the TUN has no packet left or 100 are read, and gives the tunnel the whole batch: one `wg_state`
         // lock and one liveness check per batch instead of per packet (Ombra patch P4, C1).
+        //
+        // After a full batch the TUN stays readable, so this task would read the next batch at once. quinn sends at
+        // most 20 datagrams each time its connection task runs, and its send queue (256 KiB) holds less than two
+        // batches: the queue then dropped the oldest packets. On the phone, these drops were most of the losses of an
+        // upload. The yield lets the other tasks run first, also the one that sends (Ombra patch P24).
         let read_loop_task = tokio::spawn(async move {
             let mut packets = PacketBuffer::default();
             loop {
@@ -62,8 +67,12 @@ impl Tun {
                         }
                     }
                 }
+                let full_batch = packets.buffer().is_none();
                 if !packets.is_empty() {
                     tunnel.send(packets.take_iter());
+                }
+                if full_batch {
+                    tokio::task::yield_now().await;
                 }
                 if let Some(error) = read_error {
                     tracing::error!(message_id = "eagh6Noh", ?error, "failed to read from tun");
