@@ -355,7 +355,7 @@ Rust P4 (Stealth/QUIC path and shared data path), in this order:
   `docs/research/device-test.md` 2026-11-10). It is a copy of quinn's BBR without the ProbeRTT state
   (`rust/UPSTREAM.md` P27); `quinn-proto` is a direct dependency only for one type of the
   `Controller` trait. B5: padding stays
-  opt-in. B6: UDP sockets only: SO_RCVBUF 4 MiB, SO_SNDBUF 2 MiB, log the effective values.
+  opt-in. B6: UDP sockets only: SO_RCVBUF 8 MiB (P28), SO_SNDBUF 2 MiB, log the effective values.
 - C1: batch TUN reads (until EAGAIN or 100 packets). C2: do not hold `wg_state` across quinn calls.
   C3: no per-packet heap copy (buffer pool). C4: a decrypted packet from the exit counts as proof
   of life for the liveness checker. C5: the 1 Hz tick log goes to DEBUG and is never persisted.

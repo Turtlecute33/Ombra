@@ -19,7 +19,11 @@ pub const FWMARK: u32 = u32::from_be_bytes(*b"obsc");
 /// a small kernel default (often 208 KiB on Android) drops bursts, which looks like path loss to the relay and to the
 /// inner TCP. Without CAP_NET_ADMIN the kernel caps them at `rmem_max` and `wmem_max`. Only UDP: SO_RCVBUF on a TCP
 /// socket turns off receive autotuning.
-const UDP_RECV_BUFFER_SIZE: usize = 4 << 20;
+///
+/// Receive: 8 MiB, the `rmem_max` of the phone, before 4 MiB (Ombra patch P28). With 4 MiB a download with 4 streams
+/// at about 500 Mbit/s lost 300 to 2000 packets in 10 s at this buffer, with 8 MiB 0 to 400, and it ran at about 590
+/// against 460 Mbit/s (median of 8 interleaved connections, device test 2026-11-10).
+const UDP_RECV_BUFFER_SIZE: usize = 8 << 20;
 const UDP_SEND_BUFFER_SIZE: usize = 2 << 20;
 
 #[derive(PartialEq, Eq, Clone, Debug, Deserialize, Serialize)]
