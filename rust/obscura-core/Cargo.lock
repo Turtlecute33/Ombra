@@ -2770,6 +2770,7 @@ dependencies = [
  "open",
  "oslog",
  "quinn",
+ "quinn-proto",
  "quinn-udp",
  "rand 0.8.8",
  "resvg",

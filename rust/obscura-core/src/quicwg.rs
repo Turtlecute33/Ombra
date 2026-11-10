@@ -1081,9 +1081,11 @@ impl QuicWgConnHandshaking {
         transport_config.receive_window(CONTROL_STREAM_WINDOW.into());
         transport_config.send_window(CONTROL_STREAM_WINDOW.into());
         transport_config.max_idle_timeout(Some(QUIC_IDLE_TIMEOUT.try_into()?));
-        // Keep BBR. Tunnel traffic is app-limited, so quinn's BBR stays in Startup and never limits it; Cubic as the
-        // outer controller adds queueing delay and collapses under random loss (docs/research/perf-plan.md 1.7, B4).
-        transport_config.congestion_controller_factory(Arc::new(quinn::congestion::BbrConfig::default()));
+        // Keep BBR. On a slow uplink it keeps the queue in front of the radio short: on mobile data (about 20 Mbit/s up)
+        // the ping during an upload was 0.2 to 0.3 s with it and 1.2 to 2.2 s without a congestion controller (device
+        // test 2026-11-10). It is quinn's BBR without ProbeRTT (Ombra patch P27, `bbr/mod.rs`). Cubic as the outer
+        // controller adds queueing delay and collapses under random loss (docs/research/perf-plan.md 1.7, B4).
+        transport_config.congestion_controller_factory(Arc::new(crate::bbr::BbrConfig::default()));
         quic_tuning.apply_to(&mut transport_config);
         client_cfg.transport_config(Arc::new(transport_config));
         Ok(client_cfg)

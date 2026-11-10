@@ -48,6 +48,8 @@ ipnetwork = { version = "0.21.1", features = ["serde"] }
 libadwaita = { version = "0.7", optional = true }
 libc = "0.2.178"
 quinn = "0.11.12"
+# Only for the `RttEstimator` type in the `Controller` trait (`src/bbr/`). quinn uses this crate; it adds no code.
+quinn-proto = "0.11.19"
 # Not used directly; sets a minimum for quinn's transitive dependency.
 # quinn-udp 0.5.6 regressed upload speeds on Android. This is fixed in 0.5.8 and later.
 # https://github.com/quinn-rs/quinn/issues/2042

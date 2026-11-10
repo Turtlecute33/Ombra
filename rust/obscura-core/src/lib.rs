@@ -2,6 +2,9 @@
 pub mod rate_limited_log;
 
 pub mod backoff;
+// A copy of quinn's code: it keeps quinn's `as` conversions.
+#[allow(clippy::as_conversions)]
+mod bbr;
 mod bytes_arena;
 pub mod client_state;
 pub mod config;

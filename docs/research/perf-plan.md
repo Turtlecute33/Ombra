@@ -255,6 +255,14 @@ Order of work: A (diagnostics) -> B1-B3, B6, C4 (small and safe) -> D1 (handover
 - Measure: ping p95 during an LTE upload.
 
 **B4. Keep BBR as is, and guard it.**
+- Update 2026-11-10 (`device-test.md`): the "never limits" result in 1.7 is true only between ProbeRTT events. On the
+  phone the BBR window of quinn-proto 0.11.19 fell to about 50 to 140 KB at the start of each upload and every 10 s,
+  and the send queue dropped about 1000 packets each time. BBR stays: without a congestion controller the ping during
+  an upload on mobile data was 1.2 to 2.2 s, against 0.2 to 0.3 s with BBR.
+- Second update 2026-11-10: the cause is the bandwidth estimate of quinn's BBR (one packet divided by the time
+  between two ACK frames, 31 to 38 Mbit/s on a path that carried 300). Ombra now has a copy of that BBR without the
+  ProbeRTT state (`rust/UPSTREAM.md` P27). A small own controller (window = delivery rate times the minimum RTT plus
+  0.1 s) was not kept: on a far relay the inner TCP did not grow (35 to 47 Mbit/s against 60 to 160).
 - Keep `BbrConfig::default()` (`quicwg.rs:744`).
 - Add a CI regression run of qwbench phases A/B/D on every quinn upgrade. quinn's BBRv3 work (PR #2481 [R]) can change this "never limits" behaviour.
 
