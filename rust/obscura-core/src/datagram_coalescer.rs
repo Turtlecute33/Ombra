@@ -14,6 +14,10 @@
 //! query or a voice frame, goes at once. With padding, the wait of such a message only added delay: it went alone in a
 //! padded packet after the 2 ms anyway. Without the wait, the idle RTT with padding fell from about 23.5 to 20 ms, and a
 //! download needed the same uplink (Ombra device test, 2026-10-23).
+//!
+//! All messages of one `send` call after a quiet moment go at once (Ombra patch P26): quinn has them all before it
+//! builds a packet, so they share packets without a wait. The first packet after a second of silence comes with a
+//! liveness probe in the same call, and before this it waited the 2 ms behind that probe.
 
 use crate::tokio::AbortOnDrop;
 use bytes::Bytes;
@@ -63,8 +67,15 @@ impl DatagramCoalescer {
         let mut ready = Messages::new();
         let mut batch = self.shared.batch.lock().unwrap();
         let due_before = batch.due;
-        for message in messages {
-            batch.push(message, room, now, &mut ready);
+        if batch.is_quiet(now) {
+            ready.extend(messages);
+            if !ready.is_empty() {
+                batch.last_out = Some(now);
+            }
+        } else {
+            for message in messages {
+                batch.push(message, room, now, &mut ready);
+            }
         }
         // Sent while the batch is locked, so that the flush task cannot send older messages after these.
         send_datagrams(&self.shared.conn, ready);
@@ -113,18 +124,17 @@ struct Batch {
 }
 
 impl Batch {
-    /// Adds `message` and moves the messages that go out now to `ready`, in order. `room` is quinn's largest datagram:
-    /// what one packet carries.
+    /// Whether no message waits and none went out in the last 2 ms.
+    fn is_quiet(&self, now: Instant) -> bool {
+        self.messages.is_empty() && self.last_out.is_none_or(|last_out| now.saturating_duration_since(last_out) >= MAX_DELAY)
+    }
+
+    /// Adds `message` when it is not quiet, and moves the messages that go out now to `ready`, in order. `room` is
+    /// quinn's largest datagram: what one packet carries.
     fn push(&mut self, message: Bytes, room: usize, now: Instant, ready: &mut Messages) {
         if message.len() >= SMALL_MESSAGE_SIZE {
             self.take_all(now, ready);
             ready.push(message);
-            return;
-        }
-        let quiet = self.last_out.is_none_or(|last_out| now.saturating_duration_since(last_out) >= MAX_DELAY);
-        if self.messages.is_empty() && quiet {
-            ready.push(message);
-            self.last_out = Some(now);
             return;
         }
         let size = message.len() + DATAGRAM_FRAME_OVERHEAD;
@@ -227,33 +237,24 @@ mod tests {
     }
 
     #[test]
-    fn a_message_after_a_quiet_moment_goes_at_once() {
+    fn it_is_quiet_2_ms_after_the_last_message_went_out() {
         let us = Duration::from_micros;
         let start = Instant::now();
-        let mut batch = Batch::default();
-        let mut ready = Messages::new();
-        batch.push(message(0, 100), ROOM_AT_1350, start, &mut ready);
-        assert_eq!(ids(&ready), [0], "the first message after a quiet moment goes at once");
-        assert_eq!(batch.due, None);
+        assert!(Batch::default().is_quiet(start), "nothing went out yet");
 
-        ready.clear();
+        let mut batch = busy_since(start);
+        let mut ready = Messages::new();
+        assert!(!batch.is_quiet(start + us(300)));
         batch.push(message(1, 100), ROOM_AT_1350, start + us(300), &mut ready);
         batch.push(message(2, 100), ROOM_AT_1350, start + us(600), &mut ready);
         assert!(ready.is_empty());
         let due = start + us(300) + MAX_DELAY;
-        assert_eq!(batch.due, Some(due));
+        assert!(!batch.is_quiet(due + Duration::from_millis(10)), "messages wait");
         batch.take_due(due, &mut ready);
         assert_eq!(ids(&ready), [1, 2]);
 
-        ready.clear();
-        batch.push(message(3, 100), ROOM_AT_1350, due + us(100), &mut ready);
-        assert!(ready.is_empty(), "still busy right after the batch went out");
-        batch.take_due(due + us(100) + MAX_DELAY, &mut ready);
-        assert_eq!(ids(&ready), [3]);
-
-        ready.clear();
-        batch.push(message(4, 100), ROOM_AT_1350, due + Duration::from_millis(10), &mut ready);
-        assert_eq!(ids(&ready), [4], "quiet again");
+        assert!(!batch.is_quiet(due + us(1999)), "still busy right after the batch went out");
+        assert!(batch.is_quiet(due + MAX_DELAY), "quiet again");
     }
 
     #[test]

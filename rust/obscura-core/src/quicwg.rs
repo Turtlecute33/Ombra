@@ -1721,6 +1721,27 @@ mod tests {
         assert_eq!(after.bytes - before.bytes, datagrams * u64::from(DEFAULT_UDP_PAYLOAD_SIZE), "padded");
     }
 
+    /// One thread, as on Android: quinn builds the packet after the whole call.
+    #[tokio::test]
+    async fn after_a_quiet_moment_the_small_packets_of_one_call_share_a_packet_at_once() {
+        let relay = TestRelay::spawn();
+        let tuning = QuicTuning { frame_padding: true, mtu: MtuPolicy::Floor, ack_frequency: false };
+        let conn = connect(&relay, relay.addr, tuning).await;
+        let WgSender::Quic { conn: quic, .. } = &conn.wg_sender else {
+            unreachable!("connected over QUIC")
+        };
+        let packet = udp_packet(100);
+        sleep(Duration::from_millis(20)).await;
+        let before = quic.stats().udp_tx;
+        // One TUN read, like the first packet after a second of silence with its liveness probe.
+        conn.send([packet.as_slice(); 3].into_iter());
+        sleep(Duration::from_millis(20)).await;
+        let after = quic.stats().udp_tx;
+        // Before P26 the first one went at once and the next two 2 ms later, in a second packet.
+        assert_eq!(after.datagrams - before.datagrams, 1);
+        assert_eq!(after.bytes - before.bytes, u64::from(DEFAULT_UDP_PAYLOAD_SIZE), "padded");
+    }
+
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn without_padding_small_packets_that_follow_closely_share_a_packet() {
         let relay = TestRelay::spawn();
