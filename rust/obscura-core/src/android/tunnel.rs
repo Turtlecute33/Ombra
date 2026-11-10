@@ -14,8 +14,12 @@ use tokio::io::unix::AsyncFd;
 
 const TUN_MIN_LOG_SILENCE: Duration = Duration::from_secs(5);
 
-/// Packets that wait for the TUN writer thread, about 40 ms at 300 Mbit/s. A full queue drops, as a full NIC queue does.
-const TUN_WRITE_QUEUE_LEN: usize = 1024;
+/// Packets that wait for the TUN writer thread. A full queue drops, as a full NIC queue does. The queue is empty most
+/// of the time: the writer is faster than the downlink. It fills when the scheduler holds the writer back (single
+/// writes took up to 15 ms on the phone) or when a burst comes in. With 1024 packets, a download at 350 Mbit/s lost
+/// 2500 to 7000 packets in 10 s here. The longest queue was about 3700 packets, and with 4096 the same downloads lost
+/// almost none and ran at about 580 against 400 Mbit/s, with about the same ping (Ombra patch P25, device test 2026-11-10).
+const TUN_WRITE_QUEUE_LEN: usize = 4096;
 
 pub struct Tun {
     fd: Arc<OwnedFd>,
