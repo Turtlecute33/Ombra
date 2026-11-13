@@ -11,6 +11,7 @@ import android.content.pm.PackageManager
 import android.os.Build
 import app.ombra.R
 import app.ombra.ui.MainActivity
+import app.ombra.ui.ShortcutActivity
 
 /** The foreground notification of OmbraVpnService and the "needs your action" alerts. */
 object VpnNotifications {
@@ -58,16 +59,18 @@ object VpnNotifications {
             ?: view.problemRes?.let(context::getString)
         if (text != null) builder.setContentText(text).setStyle(Notification.BigTextStyle().bigText(text))
         if (view.canDisconnect) {
-            val disconnect = PendingIntent.getService(
-                context,
-                1,
-                OmbraVpnService.disconnectIntent(context),
-                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
-            )
+            val flags = PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
             val label = context.getString(R.string.action_disconnect)
             // Like the tile: only the owner of a locked phone may turn the protection off.
-            val action = Notification.Action.Builder(null, label, disconnect)
-            if (Build.VERSION.SDK_INT >= 31) action.setAuthenticationRequired(true)
+            val action = if (Build.VERSION.SDK_INT >= 31) {
+                val disconnect = PendingIntent.getService(context, 1, OmbraVpnService.disconnectIntent(context), flags)
+                Notification.Action.Builder(null, label, disconnect).setAuthenticationRequired(true)
+            } else {
+                // Android 11 has no setAuthenticationRequired. An activity start from a locked phone waits for the
+                // unlock, a service start does not, so the action goes through the invisible ShortcutActivity.
+                val disconnect = PendingIntent.getActivity(context, 2, ShortcutActivity.disconnectIntent(context), flags)
+                Notification.Action.Builder(null, label, disconnect)
+            }
             builder.addAction(action.build())
         }
         return builder.build()

@@ -20,8 +20,8 @@ val signingProps = rootProject.file("keystore.properties").takeIf { buildsReleas
 // An abbreviated task name (for example `aR`) does not match above and would give an unsigned APK
 // without a message (PERF-HARDENING-10).
 gradle.taskGraph.whenReady {
-    if (signingProps == null && rootProject.file("keystore.properties").exists() && allTasks.any { it.path.startsWith(":app:package") && it.path.endsWith("Release") }) {
-        throw GradleException("Release build without signing: write the task name in full, for example assembleAndroid11Release.")
+    if (signingProps == null && rootProject.file("keystore.properties").exists() && hasTask(":app:packageRelease")) {
+        throw GradleException("Release build without signing: write the task name in full, for example assembleRelease.")
     }
 }
 
@@ -37,13 +37,16 @@ android {
 
     defaultConfig {
         applicationId = "app.ombra"
-        minSdk = 30
+        // Releases are for Android 15 and newer. The code runs from Android 11 (API 30): a test build for an older
+        // phone takes -Pombra.minSdk=30. Lint checks only against the minSdk of the build, so run it with 30 too.
+        minSdk = providers.gradleProperty("ombra.minSdk").map(String::toInt).getOrElse(35)
         targetSdk = 37
         versionCode = 14
         versionName = "0.2.12"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk {
-            abiFilters += "arm64-v8a"
+            // Releases are arm64 only. An emulator test build takes -Pombra.abis=x86_64 (with that library in jniLibs).
+            abiFilters += providers.gradleProperty("ombra.abis").map { it.split(',') }.getOrElse(listOf("arm64-v8a"))
         }
     }
 
@@ -56,15 +59,6 @@ android {
                 keyPassword = keychain(signingProps.getProperty("keyPasswordKeychain"))
             }
         }
-    }
-
-    // One APK per lowest Android version. android11 also runs on Android 14 and 15;
-    // the other two only refuse to install on older phones.
-    flavorDimensions += "android"
-    productFlavors {
-        create("android11") { dimension = "android"; minSdk = 30 }
-        create("android14") { dimension = "android"; minSdk = 34 }
-        create("android15") { dimension = "android"; minSdk = 35 }
     }
 
     buildTypes {
@@ -175,7 +169,7 @@ tasks.named("preBuild") { dependsOn(buildRustCore) }
 
 // The signing config holds the passwords, so a build that signs stores no configuration cache entry.
 if (signingProps != null) {
-    tasks.matching { "Release" in it.name && (it.name.startsWith("validateSigning") || it.name.startsWith("package") || it.name.startsWith("sign")) }.configureEach {
+    tasks.matching { it.name in setOf("validateSigningRelease", "packageRelease", "signReleaseBundle") }.configureEach {
         notCompatibleWithConfigurationCache("the release signing config holds the Keychain passwords")
     }
 }

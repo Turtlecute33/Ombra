@@ -70,7 +70,7 @@
             android:theme="@android:style/Theme.NoDisplay" />
 
         <!-- EmojiCompat would look for a downloadable emoji font (a Play Services font provider).
-             The platform emoji font is current on Android 16+, so skip it. -->
+             Ombra shows only flag emoji, which the platform font has on every supported Android. -->
         <provider
             android:name="androidx.startup.InitializationProvider"
             android:authorities="${applicationId}.androidx-startup"

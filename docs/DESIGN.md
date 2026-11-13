@@ -30,7 +30,7 @@ Upstream source (read-only reference): `/tmp/obscura-research/obscuravpn-client`
 | App name | Ombra |
 | applicationId / namespace | `app.ombra` (debug: suffix `.debug`) |
 | Licence | GPL-3.0-only (the Rust core is GPL-3.0; the APK is a combined work) |
-| compileSdk / targetSdk / minSdk | 37 / 37 / 30 |
+| compileSdk / targetSdk / minSdk | 37 / 37 / 35 (the code runs from 30; test builds take `-Pombra.minSdk=30`) |
 | JDK | 21 (`/opt/homebrew/opt/openjdk@21`) |
 | Gradle / AGP / Kotlin | 9.8.2 (9.8.1 is ok) / 9.4.1 / 2.4.21 (AGP 9 built-in Kotlin; apply only the compose and serialization plugins) |
 | Compose BOM / material3 | 2026.09.00 / 1.5.0-beta01 (Expressive) |
