@@ -4,6 +4,7 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.graphics.Color
+import android.os.Build
 import android.os.Bundle
 import android.os.StrictMode
 import androidx.activity.ComponentActivity
@@ -48,7 +49,8 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         // A VPN app has no reason to let other apps draw over it (tapjacking).
-        window.setHideOverlayWindows(true)
+        if (Build.VERSION.SDK_INT >= 31) window.setHideOverlayWindows(true)
+        else window.decorView.filterTouchesWhenObscured = true
         // A demo core also plays the tunnel; the real one needs the consent flow of this activity.
         tunnel = app.core as? TunnelControl ?: VpnConsent(this, app.prefs)
         // Demo data holds no secrets, and its screens must stay capturable for UI review.

@@ -1,8 +1,10 @@
 package app.ombra.vpn
 
+import android.annotation.SuppressLint
 import android.content.ComponentName
 import android.content.Context
 import android.net.VpnService
+import android.os.Build
 import android.service.quicksettings.Tile
 import android.service.quicksettings.TileService
 import android.util.Log
@@ -54,7 +56,7 @@ class QuickTileService : TileService() {
             ServicePolicy.TileAction.Connect -> connect()
             // Only the owner of a locked phone may turn the protection off.
             ServicePolicy.TileAction.Disconnect -> if (isSecure) unlockAndRun(::disconnect) else disconnect()
-            ServicePolicy.TileAction.OpenApp -> startActivityAndCollapse(VpnNotifications.openApp(this))
+            ServicePolicy.TileAction.OpenApp -> openApp(null)
         }
     }
 
@@ -63,7 +65,18 @@ class QuickTileService : TileService() {
             startForegroundService(OmbraVpnService.connectIntent(this))
         } else {
             // Consent can only be given in an activity.
-            startActivityAndCollapse(VpnNotifications.openApp(this, OmbraVpnService.ACTION_CONNECT))
+            openApp(OmbraVpnService.ACTION_CONNECT)
+        }
+    }
+
+    private fun openApp(action: String?) {
+        if (Build.VERSION.SDK_INT >= 34) {
+            startActivityAndCollapse(VpnNotifications.openApp(this, action))
+        } else {
+            // The only way before Android 14.
+            @Suppress("DEPRECATION")
+            @SuppressLint("StartActivityAndCollapseDeprecated")
+            startActivityAndCollapse(VpnNotifications.openAppIntent(this, action))
         }
     }
 

@@ -6,6 +6,7 @@ import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import android.net.VpnService
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
@@ -61,7 +62,9 @@ class NetworkMonitor(private val service: VpnService) {
             .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
             .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
             .build()
-        connectivity.registerBestMatchingNetworkCallback(request, callback, handler)
+        // Android 11 has no registerBestMatchingNetworkCallback; a request is also matched to the single best network.
+        if (Build.VERSION.SDK_INT >= 31) connectivity.registerBestMatchingNetworkCallback(request, callback, handler)
+        else connectivity.requestNetwork(request, callback, handler)
         registered = true
         reportDefaultNetwork()
     }

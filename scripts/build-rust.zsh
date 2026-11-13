@@ -9,7 +9,7 @@
 #   CARGO_TARGET_DIR    cargo build dir                      (default: <repo>/build/rust-target)
 #   SYMBOLS_DIR         unstripped .so for ndk-stack         (default: <repo>/build/rust-symbols)
 #   ABIS                space separated: arm64-v8a x86_64     (default: arm64-v8a)
-#   ANDROID_API         cargo-ndk --platform                  (default: 35, the highest API in NDK r28)
+#   ANDROID_API         cargo-ndk --platform                  (default: 30, the minSdk: Android 11)
 #   NDK_VERSION         dir name under $ANDROID_HOME/ndk      (default: 28.0.13004108)
 #   OMBRA_RUST_PROFILE  release, or dev-fast = thin LTO + 16 codegen units for local work only
 #                                                             (default: release)
@@ -23,7 +23,7 @@ readonly SYMBOLS_DIR=${${SYMBOLS_DIR:-"$REPO_DIR/build/rust-symbols"}:A}
 # Outside RUSTLIB_DIR: build.rs has no rerun-if-changed, so any new file in the crate dir rebuilds it.
 export CARGO_TARGET_DIR=${${CARGO_TARGET_DIR:-"$REPO_DIR/build/rust-target"}:A}
 readonly -a ABIS=(${=ABIS:-arm64-v8a})
-readonly ANDROID_API=${ANDROID_API:-35}
+readonly ANDROID_API=${ANDROID_API:-30}
 readonly NDK_VERSION=${NDK_VERSION:-28.0.13004108}
 readonly PROFILE=${OMBRA_RUST_PROFILE:-release}
 readonly SDK_DIR=${ANDROID_HOME:-${ANDROID_SDK_ROOT:-$HOME/Library/Android/sdk}}

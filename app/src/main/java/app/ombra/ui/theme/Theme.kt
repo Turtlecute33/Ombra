@@ -1,6 +1,7 @@
 package app.ombra.ui.theme
 
 import android.animation.ValueAnimator
+import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialExpressiveTheme
 import androidx.compose.material3.MotionScheme
@@ -14,6 +15,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.platform.LocalContext
+
+/** Wallpaper colours (Material You) exist from Android 12. */
+val supportsDynamicColor: Boolean get() = Build.VERSION.SDK_INT >= 31
 
 private val LocalStatusColors = staticCompositionLocalOf { DarkStatusColors }
 private val LocalReducedMotion = staticCompositionLocalOf { false }
@@ -30,8 +34,8 @@ fun OmbraTheme(
 ) {
     val context = LocalContext.current
     val colors = when {
-        dynamicColor && darkTheme -> dynamicDarkColorScheme(context)
-        dynamicColor -> dynamicLightColorScheme(context)
+        dynamicColor && supportsDynamicColor && darkTheme -> dynamicDarkColorScheme(context)
+        dynamicColor && supportsDynamicColor -> dynamicLightColorScheme(context)
         darkTheme -> DarkColors
         else -> LightColors
     }
@@ -56,6 +60,8 @@ fun OmbraTheme(
  */
 @Composable
 private fun rememberReducedMotion(): State<Boolean> = produceState(!ValueAnimator.areAnimatorsEnabled()) {
+    // Before Android 13 there is no listener: the value is read when the theme first composes.
+    if (Build.VERSION.SDK_INT < 33) return@produceState
     val listener = ValueAnimator.DurationScaleChangeListener { scale -> value = scale == 0f }
     ValueAnimator.registerDurationScaleChangeListener(listener)
     // The scale can change between the first value and the registration.

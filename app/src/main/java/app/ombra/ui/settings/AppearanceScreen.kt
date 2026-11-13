@@ -26,6 +26,7 @@ import app.ombra.ui.components.RowGroup
 import app.ombra.ui.components.SectionHeader
 import app.ombra.ui.components.SwitchRow
 import app.ombra.ui.theme.Spacing
+import app.ombra.ui.theme.supportsDynamicColor
 
 /** Theme and colours (UI preferences), plus what other people can see of the screen and notification. */
 @Composable
@@ -40,12 +41,14 @@ fun AppearanceScreen(core: CoreSource, editor: SettingsEditor, prefs: UiPrefs, o
     SettingsPage(stringResource(R.string.settings_appearance), onBack) {
         RowGroup {
             ThemeRow(theme, prefs::setTheme)
-            SwitchRow(
-                title = stringResource(R.string.settings_dynamic_color),
-                supporting = stringResource(R.string.settings_dynamic_color_detail),
-                checked = dynamicColor,
-                onCheckedChange = prefs::setDynamicColor,
-            )
+            if (supportsDynamicColor) {
+                SwitchRow(
+                    title = stringResource(R.string.settings_dynamic_color),
+                    supporting = stringResource(R.string.settings_dynamic_color_detail),
+                    checked = dynamicColor,
+                    onCheckedChange = prefs::setDynamicColor,
+                )
+            }
         }
 
         SectionHeader(stringResource(R.string.settings_privacy))

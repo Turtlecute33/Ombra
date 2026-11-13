@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.net.VpnService
+import android.os.Build
 import android.util.Log
 import app.ombra.core.ffi.Callbacks
 import app.ombra.core.ffi.ErrorCodeException
@@ -129,7 +130,13 @@ class OmbraVpnService : VpnService(), Callbacks.NetworkConfigHandler {
             hideDetails = CoreHost.settingsStore.current.hideNotificationDetails,
             alwaysOn = CoreHost.systemState.value.alwaysOn == true,
         )
-        startForeground(VpnNotifications.STATUS_ID, VpnNotifications.status(this, view), ServiceInfo.FOREGROUND_SERVICE_TYPE_SYSTEM_EXEMPTED)
+        val notification = VpnNotifications.status(this, view)
+        if (Build.VERSION.SDK_INT >= 34) {
+            startForeground(VpnNotifications.STATUS_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SYSTEM_EXEMPTED)
+        } else {
+            // systemExempted is new in Android 14; before it a VPN service needs no type.
+            startForeground(VpnNotifications.STATUS_ID, notification)
+        }
         true
     } catch (e: RuntimeException) {
         // SecurityException without consent, ForegroundServiceStartNotAllowedException from the background.

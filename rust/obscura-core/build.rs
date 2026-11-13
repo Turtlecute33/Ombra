@@ -31,8 +31,9 @@ fn main() {
     // Get the crate directory where our source code lives
     let crate_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
 
+    // cfg(target_os) in a build script is the HOST; only a Windows target needs wintun (cross-builds for Android from Windows).
     #[cfg(target_os = "windows")]
-    {
+    if env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
         let dll_src = get_wintun_dll_src(&crate_dir);
         copy_to_bin_dir(&dll_src, "wintun.dll");
         emit_wintun_dll_hash(&dll_src);

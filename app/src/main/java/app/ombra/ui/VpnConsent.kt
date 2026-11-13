@@ -4,6 +4,7 @@ import android.Manifest
 import android.app.Activity
 import android.content.pm.PackageManager
 import android.net.VpnService
+import android.os.Build
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
 import app.ombra.data.StartProblem
@@ -33,7 +34,9 @@ class VpnConsent(private val activity: ComponentActivity, private val prefs: UiP
 
     override fun connect() {
         problemState.value = null
-        val granted = activity.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+        // POST_NOTIFICATIONS is a runtime permission only from Android 13; before it there is nothing to ask.
+        val granted = Build.VERSION.SDK_INT < 33 ||
+            activity.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
         if (granted || prefs.notificationsAsked) {
             askVpnConsent()
         } else {

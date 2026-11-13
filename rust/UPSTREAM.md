@@ -11,7 +11,7 @@
 | Git dependencies (`Cargo.lock`) | `obscuravpn-api` `e94483e7`, `neptun` (boringtun fork) `ff3b5555`, `reqwest` fork `87cc6fc6`, `rust-dispatch` `13447cd7` (Apple only) |
 | crates.io dependencies (`Cargo.lock`) | upstream, plus the security updates in "Crate updates in `Cargo.lock`" below |
 
-Build: `scripts/build-rust.zsh` (NDK 28.0.13004108, API 35, arm64-v8a). It never downloads: it fails
+Build: `scripts/build-rust.zsh` (NDK 28.0.13004108, API 30, arm64-v8a). It never downloads: it fails
 when the pinned toolchain, a target or a crate is missing (run `cargo fetch --locked` once when online).
 Host tests: `cd rust/obscura-core && cargo test --locked --offline`.
 

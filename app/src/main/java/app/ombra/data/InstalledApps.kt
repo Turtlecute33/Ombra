@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
+import android.os.Build
 import android.util.LruCache
 import androidx.compose.runtime.Immutable
 import androidx.compose.ui.graphics.ImageBitmap
@@ -30,7 +31,8 @@ class InstalledApps(context: Context) {
     suspend fun launchable(): List<InstalledApp> = withContext(Dispatchers.IO) {
         val launcher = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
         val collator = Collator.getInstance()
-        packageManager.queryIntentActivities(launcher, PackageManager.ResolveInfoFlags.of(0))
+        (if (Build.VERSION.SDK_INT >= 33) packageManager.queryIntentActivities(launcher, PackageManager.ResolveInfoFlags.of(0))
+        else @Suppress("DEPRECATION") packageManager.queryIntentActivities(launcher, 0))
             .map { it.activityInfo.applicationInfo }
             .distinctBy { it.packageName }
             .filter { it.packageName != ownPackage }

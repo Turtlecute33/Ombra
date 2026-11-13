@@ -4,6 +4,7 @@ import android.content.pm.PackageManager
 import android.net.InetAddresses
 import android.net.Network
 import android.net.VpnService
+import android.os.Build
 import android.util.Log
 import app.ombra.core.model.CoreJson
 import app.ombra.core.model.OsNetworkConfig
@@ -78,7 +79,8 @@ class TunConfigurator(
      * visibility), for example a chosen app that an update left without a launcher activity.
      */
     private fun isInstalled(packageName: String): Boolean = try {
-        packageManager.getApplicationInfo(packageName, PackageManager.ApplicationInfoFlags.of(0))
+        if (Build.VERSION.SDK_INT >= 33) packageManager.getApplicationInfo(packageName, PackageManager.ApplicationInfoFlags.of(0))
+        else @Suppress("DEPRECATION") packageManager.getApplicationInfo(packageName, 0)
         true
     } catch (e: PackageManager.NameNotFoundException) {
         false

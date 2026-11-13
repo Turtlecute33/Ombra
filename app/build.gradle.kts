@@ -20,8 +20,8 @@ val signingProps = rootProject.file("keystore.properties").takeIf { buildsReleas
 // An abbreviated task name (for example `aR`) does not match above and would give an unsigned APK
 // without a message (PERF-HARDENING-10).
 gradle.taskGraph.whenReady {
-    if (signingProps == null && rootProject.file("keystore.properties").exists() && hasTask(":app:packageRelease")) {
-        throw GradleException("Release build without signing: write the task name in full, for example assembleRelease.")
+    if (signingProps == null && rootProject.file("keystore.properties").exists() && allTasks.any { it.path.startsWith(":app:package") && it.path.endsWith("Release") }) {
+        throw GradleException("Release build without signing: write the task name in full, for example assembleAndroid11Release.")
     }
 }
 
@@ -37,7 +37,7 @@ android {
 
     defaultConfig {
         applicationId = "app.ombra"
-        minSdk = 36
+        minSdk = 30
         targetSdk = 37
         versionCode = 14
         versionName = "0.2.12"
@@ -56,6 +56,15 @@ android {
                 keyPassword = keychain(signingProps.getProperty("keyPasswordKeychain"))
             }
         }
+    }
+
+    // One APK per lowest Android version. android11 also runs on Android 14 and 15;
+    // the other two only refuse to install on older phones.
+    flavorDimensions += "android"
+    productFlavors {
+        create("android11") { dimension = "android"; minSdk = 30 }
+        create("android14") { dimension = "android"; minSdk = 34 }
+        create("android15") { dimension = "android"; minSdk = 35 }
     }
 
     buildTypes {
@@ -166,7 +175,7 @@ tasks.named("preBuild") { dependsOn(buildRustCore) }
 
 // The signing config holds the passwords, so a build that signs stores no configuration cache entry.
 if (signingProps != null) {
-    tasks.matching { it.name in setOf("validateSigningRelease", "packageRelease", "signReleaseBundle") }.configureEach {
+    tasks.matching { "Release" in it.name && (it.name.startsWith("validateSigning") || it.name.startsWith("package") || it.name.startsWith("sign")) }.configureEach {
         notCompatibleWithConfigurationCache("the release signing config holds the Keychain passwords")
     }
 }
