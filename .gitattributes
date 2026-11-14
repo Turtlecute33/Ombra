@@ -1,0 +1,7 @@
+# Keep LF on every checkout (also Windows with core.autocrlf=true): the licence texts are packaged
+# into the APK and compared byte for byte by LicencesTest, and zsh/sh scripts break with CRLF.
+LICENSE text eol=lf
+app/src/main/assets/licenses/** text eol=lf
+app/src/main/res/raw/licence_*.txt text eol=lf
+*.sh text eol=lf
+*.zsh text eol=lf

@@ -25,6 +25,9 @@ gradle.taskGraph.whenReady {
     }
 }
 
+val RELEASE_MIN_SDK = 35
+val ombraMinSdk: Int = providers.gradleProperty("ombra.minSdk").map { it.trim().toInt() }.getOrElse(RELEASE_MIN_SDK)
+
 fun keychain(service: String): String =
     providers.exec { commandLine("security", "find-generic-password", "-s", service, "-w") }
         .standardOutput.asText.get().trim()
@@ -39,14 +42,17 @@ android {
         applicationId = "app.ombra"
         // Releases are for Android 15 and newer. The code runs from Android 11 (API 30): a test build for an older
         // phone takes -Pombra.minSdk=30. Lint checks only against the minSdk of the build, so run it with 30 too.
-        minSdk = providers.gradleProperty("ombra.minSdk").map(String::toInt).getOrElse(35)
+        minSdk = ombraMinSdk
         targetSdk = 37
         versionCode = 14
-        versionName = "0.2.12"
+        // A test build for an older Android says so in its version, so a debug bundle tells it apart from a release.
+        versionName = "0.2.12" + if (ombraMinSdk < RELEASE_MIN_SDK) "-api$ombraMinSdk" else ""
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk {
             // Releases are arm64 only. An emulator test build takes -Pombra.abis=x86_64 (with that library in jniLibs).
-            abiFilters += providers.gradleProperty("ombra.abis").map { it.split(',') }.getOrElse(listOf("arm64-v8a"))
+            abiFilters += providers.gradleProperty("ombra.abis")
+                .map { abis -> abis.split(',').map(String::trim).filter(String::isNotEmpty) }
+                .getOrElse(listOf("arm64-v8a"))
         }
     }
 
@@ -158,6 +164,10 @@ val buildRustCore = tasks.register<Exec>("buildRustCore") {
     inputs.files(script).withPropertyName("buildScript").withPathSensitivity(PathSensitivity.RELATIVE)
     // The script reads it: without this, a release build keeps the library of an earlier dev-fast build.
     inputs.property("rustProfile", providers.environmentVariable("OMBRA_RUST_PROFILE").orElse("release"))
+    // The core links against the app's minSdk unless ANDROID_API says otherwise; a change rebuilds it.
+    val androidApi = providers.environmentVariable("ANDROID_API").orElse(ombraMinSdk.toString())
+    inputs.property("androidApi", androidApi)
+    environment("ANDROID_API", androidApi.get())
     outputs.file(layout.projectDirectory.file("src/main/jniLibs/arm64-v8a/libobscuravpn_client.so"))
         .withPropertyName("library")
 

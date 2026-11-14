@@ -9,7 +9,10 @@ native Jetpack Compose app on top of the upstream Obscura Rust core, with our ow
 made by Obscura.
 
 Android 15 or newer (API 35), arm64. The code also runs on Android 11 to 14: a test build for them takes
-`-Pombra.minSdk=30`. On Android 11 there are no wallpaper colours.
+`-Pombra.minSdk=30` (its version then ends in `-api30`). On Android 11 there are no wallpaper colours. Such a
+test build has less hardening than a release: the block on other apps' activities starting over Ombra needs
+Android 15, memory tagging needs Android 12, and on Android 11 overlays are not hidden (taps under them are
+dropped instead).
 
 ## Changes from the official app
 
