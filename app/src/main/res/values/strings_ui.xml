@@ -17,6 +17,7 @@
     <string name="search_clear">Clear search</string>
     <string name="copied">Copied. The clipboard clears in a minute.</string>
     <string name="no_app_for_link">No app on this device can open this</string>
+    <string name="no_default_browser">Set a default browser in the Android settings. This link holds your account number, so Ombra does not let other apps open it.</string>
 
     <!-- Connect: status -->
     <string name="status_loading">Starting</string>

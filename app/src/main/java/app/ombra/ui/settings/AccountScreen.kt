@@ -39,7 +39,6 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import app.ombra.R
 import app.ombra.core.AccountNumber
 import app.ombra.data.CoreSource
-import app.ombra.ui.ObscuraLinks
 import app.ombra.ui.SecureContent
 import app.ombra.ui.components.ConfirmDialog
 import app.ombra.ui.components.Icons
@@ -49,7 +48,7 @@ import app.ombra.ui.components.RowGroup
 import app.ombra.ui.components.SectionHeader
 import app.ombra.ui.components.copySensitive
 import app.ombra.ui.confirmScreenLock
-import app.ombra.ui.openLink
+import app.ombra.ui.openPaymentLink
 import app.ombra.ui.theme.OmbraTextStyles
 import app.ombra.ui.theme.OmbraTheme
 import app.ombra.ui.theme.Spacing
@@ -85,7 +84,7 @@ fun AccountScreen(core: CoreSource, onBack: () -> Unit) {
         Column(Modifier.padding(horizontal = Spacing.screen, vertical = Spacing.l)) {
             Button(
                 onClick = {
-                    vm.afterScreenLock(context, lockTitle) { vm.addTime { number -> openLink(context, ObscuraLinks.payment(number)) } }
+                    vm.afterScreenLock(context, lockTitle) { vm.addTime { number -> openPaymentLink(context, number) } }
                 },
                 enabled = !vm.busy,
                 modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),

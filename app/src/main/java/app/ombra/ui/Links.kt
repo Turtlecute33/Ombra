@@ -27,6 +27,22 @@ object OmbraLinks {
 /** Opens [url] in the browser; says so when no app can open it. */
 fun openLink(context: Context, url: String) = openExternal(context, Intent(Intent.ACTION_VIEW, url.toUri()))
 
+/**
+ * Opens the payment page, whose link holds the account number, only in the default browser (or the one
+ * app that can open it). Without a default, Android would show a chooser where any app that claims web
+ * links could get the number (T13).
+ */
+fun openPaymentLink(context: Context, accountNumber: String) {
+    val intent = Intent(Intent.ACTION_VIEW, ObscuraLinks.payment(accountNumber).toUri())
+        .addCategory(Intent.CATEGORY_BROWSABLE)
+        .addFlags(Intent.FLAG_ACTIVITY_REQUIRE_DEFAULT)
+    try {
+        context.startActivity(intent)
+    } catch (e: ActivityNotFoundException) {
+        Toast.makeText(context, R.string.no_default_browser, Toast.LENGTH_LONG).show()
+    }
+}
+
 /** Starts a system screen or another app; says so when the device has none for [intent]. */
 fun openExternal(context: Context, intent: Intent) {
     try {

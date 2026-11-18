@@ -313,7 +313,7 @@ Screens (bottom navigation with 3 destinations: Connect, Locations, Settings):
    that expand to cities, and cities that expand to single servers (show `datacenter_id`, provider).
    Pin by long press or a trailing icon. Flags from regional-indicator emoji.
 4. **Settings** (grouped, short descriptions under each item):
-   - Account card (status, days left, add time -> browser link, account number reveal/copy with
+   - Account card (status, days left, add time -> link in the default browser only, never a chooser, account number reveal/copy with
      `ClipDescription.EXTRA_IS_SENSITIVE`, log out, delete account with strong confirmation).
    - Connection: protocol (Stealth QUIC / Speed WireGuard UDP / TCP-TLS for restrictive networks),
      packet padding (state the real cost), small-MTU compatibility, UDP MTU, auto-connect on launch.

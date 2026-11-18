@@ -68,6 +68,7 @@ import app.ombra.ui.components.SwitchRow
 import app.ombra.ui.components.copySensitive
 import app.ombra.ui.nav.sharedAxis
 import app.ombra.ui.openLink
+import app.ombra.ui.openPaymentLink
 import app.ombra.ui.requestErrorText
 import app.ombra.ui.theme.OmbraTextStyles
 import app.ombra.ui.theme.OmbraTheme
@@ -343,7 +344,7 @@ private fun NewAccount(vm: OnboardingViewModel) {
                 OutlinedButton(
                     onClick = {
                         vm.onPaymentOpened()
-                        openLink(context, ObscuraLinks.payment(number))
+                        openPaymentLink(context, number)
                     },
                     enabled = saved,
                     modifier = Modifier.fillMaxWidth().widthIn(max = Spacing.maxContentWidth).heightIn(min = 56.dp),
