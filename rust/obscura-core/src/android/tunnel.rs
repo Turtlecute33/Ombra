@@ -32,7 +32,10 @@ pub struct Tun {
 impl Tun {
     pub fn spawn(fd: OwnedFd, mtu: u16, tunnel: QuicWgConnPacketSender) -> Result<Self, Self> {
         let fd = Arc::new(fd);
-        let fd_watcher = match AsyncFd::new(fd.clone()) {
+        // SAFETY: the `AsyncFd` owns a clone of the `Arc`, so the fd stays open and refers to the same file for the whole
+        // life of the `AsyncFd`, and `as_raw_fd` gives the same fd each time. `AsyncFd::new` is deprecated for this
+        // contract (tokio PR 8587).
+        let fd_watcher = match unsafe { AsyncFd::register(fd.clone()) } {
             Ok(fd_watcher) => fd_watcher,
             Err(error) => {
                 tracing::error!(message_id = "sPCZix4J", ?error, "failed to create fd watcher for tun reader: {error}");
