@@ -300,13 +300,18 @@ impl ClientStateHandle {
         let claims = self.udp_tunnel_claims();
         let id = Uuid::new_v4();
         claims.claim(id);
+        let mut forgotten = Vec::new();
         self.change_config(|config| {
             config.owned_udp_tunnel_ids.push(id);
             let excess = config.owned_udp_tunnel_ids.len().saturating_sub(MAX_OWNED_TUNNEL_IDS);
-            for forgotten in config.owned_udp_tunnel_ids.drain(..excess) {
-                tracing::warn!(message_id = "Pz2kQm6B", tunnel.id =% forgotten, "too many undeleted API tunnels, forgetting the oldest");
-            }
+            forgotten = config.owned_udp_tunnel_ids.drain(..excess).collect();
         });
+        for forgotten in &forgotten {
+            tracing::warn!(message_id = "Pz2kQm6B", tunnel.id =% forgotten, "too many undeleted API tunnels, forgetting the oldest");
+        }
+        // A forgotten id still gets its delete, which tries it again as an id that the config forgot (Ombra patch P32).
+        // An id that a task works on already has one.
+        self.delete_unclaimed_udp_tunnels(api_client.clone(), &forgotten);
         UdpTunnelLease { id, deleter: Some(TunnelDeleter { api_client, client_state: self.downgrade(), claims }) }
     }
 

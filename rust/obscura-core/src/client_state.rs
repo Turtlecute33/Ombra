@@ -537,6 +537,8 @@ impl ClientStateHandle {
         // The create call runs to its end in its own task, also when this connect is cancelled. The lease drops only
         // after it, so the delete never overtakes the create.
         let this = self.clone();
+        // The account of the create call also deletes a tunnel with an unexpected id (Ombra patch P32).
+        let creator = (account_id.clone(), api_client.clone());
         let (created, lease) = tokio::spawn(async move { (this.api_request_with(&account_id, &api_client, cmd).await, lease) })
             .await
             .unwrap();
@@ -552,7 +554,8 @@ impl ClientStateHandle {
             tracing::error!(message_id = "Jb8nTf2X", tunnel.id =% tunnel_id, api_tunnel.id = tunnel.id, "API made the tunnel with another id");
             let this = self.clone();
             tokio::spawn(async move {
-                if let Err(error) = this.api_request(DeleteTunnel { id: tunnel.id }).await {
+                let (account_id, api_client) = creator;
+                if let Err(error) = this.api_request_with(&account_id, &api_client, DeleteTunnel { id: tunnel.id }).await {
                     tracing::warn!(message_id = "Wm1cRv9L", ?error, "failed to delete the tunnel with the unexpected id");
                 }
             });
@@ -1506,6 +1509,23 @@ mod tests {
         assert!(client_state.borrow().config().owned_udp_tunnel_ids.is_empty());
         wait_until("the logout deletes the leftover", || api.deleted_tunnel_ids().len() == 2).await;
         assert_eq!(api.deleted_tunnel_ids(), [leftover.to_string(), at_logout.to_string()]);
+    }
+
+    /// Ombra patch P32: an id that leaves the config at the cap of 16 ids still gets its delete.
+    #[tokio::test]
+    async fn an_id_over_the_cap_is_deleted() {
+        let setup = SpeedSetup::new(|relay| relay.udp_addr);
+        let SpeedSetup { client_state, api, .. } = &setup;
+        let owned: Vec<Uuid> = (0..16).map(|_| Uuid::new_v4()).collect();
+        client_state.change_config(|config| config.owned_udp_tunnel_ids = owned.clone());
+        let (_, api_client) = client_state.account_api_client().unwrap();
+
+        let lease = client_state.lease_udp_tunnel(api_client);
+
+        assert_eq!(client_state.borrow().config().owned_udp_tunnel_ids.len(), 16);
+        assert!(!client_state.borrow().config().owned_udp_tunnel_ids.contains(&owned[0]));
+        wait_until("the forgotten id is deleted", || api.deleted_tunnel_ids() == [owned[0].to_string()]).await;
+        drop(lease);
     }
 
     /// The config of the next account does not have the old account's tunnel ids, so a failed delete at logout is
