@@ -28,7 +28,7 @@ fun copySensitive(context: Context, label: String, text: String) = SensitiveClip
 object SensitiveClip {
     private val main = Handler(Looper.getMainLooper())
 
-    /** [ClipDescription.getTimestamp] of the clip that Ombra copied; null when nothing waits. */
+    /** [ClipDescription.getTimestamp] of the clip that Ombra copied, or [UNKNOWN]; null when nothing waits. */
     private var copiedAt: Long? = null
     private var dueAt = 0L
 
@@ -37,20 +37,22 @@ object SensitiveClip {
         val clip = ClipData.newPlainText(label, text)
         clip.description.extras = PersistableBundle().apply { putBoolean(ClipDescription.EXTRA_IS_SENSITIVE, true) }
         clipboard.setPrimaryClip(clip)
-        copiedAt = clipboard.primaryClipDescription?.timestamp
+        // Null when Ombra cannot read the clipboard: only the focused app can. In the callback of the
+        // screen-lock prompt, the prompt can still have the focus.
+        val at = clipboard.primaryClipDescription?.timestamp ?: UNKNOWN
+        copiedAt = at
         dueAt = SystemClock.elapsedRealtime() + CLEAR_AFTER_MS
         val appContext = context.applicationContext
         main.removeCallbacksAndMessages(null)
         main.postDelayed({ clearIfDue(appContext) }, CLEAR_AFTER_MS)
         // The handler does not run when Android stops the process within the minute; the alarm
         // starts the process again. Inexact, so it needs no permission.
-        val at = copiedAt ?: return
         appContext.alarms().set(AlarmManager.ELAPSED_REALTIME, dueAt, clearAlarm(appContext, at))
     }
 
     /**
      * Clears the clip when its minute is over and it is still Ombra's, or when Ombra cannot see
-     * whose it is. Also call when the window gets the focus.
+     * whose it is (also when the time of the copy is [UNKNOWN]). Also call when the window gets the focus.
      */
     fun clearIfDue(context: Context) {
         val at = copiedAt ?: return
@@ -75,7 +77,7 @@ object SensitiveClip {
         val clipboard = context.clipboard()
         // Null in the background (or when the clipboard is empty).
         val current = clipboard.primaryClipDescription
-        if (current == null || current.timestamp == at) clipboard.clearPrimaryClip()
+        if (current == null || at == UNKNOWN || current.timestamp == at) clipboard.clearPrimaryClip()
     }
 
     private fun clearAlarm(context: Context, at: Long): PendingIntent = PendingIntent.getBroadcast(
@@ -91,6 +93,9 @@ object SensitiveClip {
 
     internal const val EXTRA_AT = "at"
     private const val CLEAR_AFTER_MS = 60_000L
+
+    /** The copy time when Ombra could not read it back (T4). Not 0: the receiver ignores 0. */
+    private const val UNKNOWN = -1L
 }
 
 /** Target of the clear alarm of [SensitiveClip]. Not exported: only the alarm of this app sends it. */
