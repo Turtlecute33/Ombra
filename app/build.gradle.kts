@@ -11,7 +11,8 @@ plugins {
 // reads them, so debug builds, tests and lint never hold them.
 val buildsRelease = gradle.startParameter.taskNames.any { name ->
     val task = name.substringAfterLast(':').lowercase()
-    "release" in task || task in setOf("assemble", "build", "bundle")
+    // lintRelease and testReleaseUnitTest make no APK (DEPS-002).
+    ("release" in task && !task.startsWith("lint") && !task.startsWith("test")) || task in setOf("assemble", "build", "bundle")
 }
 val signingProps = rootProject.file("keystore.properties").takeIf { buildsRelease && it.exists() }?.let { f ->
     Properties().apply { f.inputStream().use { load(it) } }
