@@ -24,6 +24,12 @@ gradle.taskGraph.whenReady {
     if (signingProps == null && rootProject.file("keystore.properties").exists() && hasTask(":app:packageRelease")) {
         throw GradleException("Release build without signing: write the task name in full, for example assembleRelease.")
     }
+    // A release holds a Rust core built now from this source with the release profile (DEPS-004).
+    val skipRust = providers.gradleProperty("ombra.skipRust").orNull == "true"
+    val rustProfile = providers.environmentVariable("OMBRA_RUST_PROFILE").orElse("release").get()
+    if (hasTask(":app:packageRelease") && (skipRust || rustProfile != "release")) {
+        throw GradleException("A release needs the Rust core of the release profile: remove -Pombra.skipRust and OMBRA_RUST_PROFILE.")
+    }
 }
 
 fun keychain(service: String): String =
