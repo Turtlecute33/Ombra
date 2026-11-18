@@ -47,9 +47,13 @@ data class CountryGroup(val code: String, val name: String, val cities: List<Cit
     val serverCount: Int get() = cities.sumOf { it.servers.size }
 }
 
-/** Countries by name, cities by name, servers by id. [countryName] gives the name in the user's language. */
+/**
+ * Countries by name, cities by name, servers by id. [countryName] gives the name in the user's language.
+ * A server id shows once: it is the key of its row, and a key used twice crashes the list (T7).
+ */
 fun locationTree(servers: List<Server>, countryName: (String) -> String, order: Comparator<in String>): List<CountryGroup> =
-    servers.groupBy { it.countryCode }
+    servers.distinctBy { it.id }
+        .groupBy { it.countryCode }
         .map { (code, inCountry) ->
             val cities = inCountry.groupBy { it.cityCode }
                 .map { (cityCode, inCity) -> CityGroup(code, cityCode, inCity.first().cityName, inCity.sortedBy { it.id }) }

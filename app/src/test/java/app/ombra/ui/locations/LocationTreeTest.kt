@@ -30,6 +30,14 @@ class LocationTreeTest {
     }
 
     @Test
+    fun aServerIdFromTheApiShowsOnce() {
+        // The id is the LazyColumn key of the row (T7).
+        val twice = servers + exit("se-sto-001", "de", "fra", "Frankfurt")
+        val tree = locationTree(twice, { names.getValue(it) }, Collator.getInstance(Locale.ENGLISH))
+        assertEquals(tree, countries)
+    }
+
+    @Test
     fun withoutAQueryFastestComesFirstAndCountriesStartFolded() {
         val rows = locationRows(countries, Picker())
         assertEquals(FastestRow(selected = true), rows[0])
