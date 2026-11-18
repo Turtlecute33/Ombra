@@ -90,5 +90,19 @@ class LocationChoiceTest {
         assertEquals(pinned, pinned.togglePin(LocationSide.Entry, Choice.City("de", "fra"), nowSeconds = 0))
     }
 
+    @Test
+    fun aPinChangeAppliedAgainChangesNothing() {
+        // SettingsEditor applies a change again on top of the push that holds it already (T6).
+        val city = Choice.City("se", "sto")
+        val pinned = Settings().withPin(LocationSide.Exit, city, pin = true, nowSeconds = 1)
+        assertEquals(listOf(PinnedLocation("se", "sto", 1)), pinned.pinnedExits)
+        assertEquals(pinned, pinned.withPin(LocationSide.Exit, city, pin = true, nowSeconds = 2))
+        val unpinned = pinned.withPin(LocationSide.Exit, city, pin = false, nowSeconds = 3)
+        assertEquals(emptyList(), unpinned.pinnedExits)
+        assertEquals(unpinned, unpinned.withPin(LocationSide.Exit, city, pin = false, nowSeconds = 4))
+        val relay = Settings().withPin(LocationSide.Entry, Choice.Server("r1"), pin = true, nowSeconds = 0)
+        assertEquals(relay, relay.withPin(LocationSide.Entry, Choice.Server("r1"), pin = true, nowSeconds = 0))
+    }
+
     private fun json(text: String): JsonObject = Json.parseToJsonElement(text) as JsonObject
 }

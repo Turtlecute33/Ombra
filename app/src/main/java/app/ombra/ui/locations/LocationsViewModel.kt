@@ -126,7 +126,9 @@ class LocationsViewModel(
 
     fun togglePin(choice: Choice) {
         val side = sideState.value
-        launchRequest { editor.update { it.togglePin(side, choice, nowSeconds()) } }
+        // The state that the user saw decides, so the change stays the same when it is applied again (T6).
+        val pin = choice !in editor.settings.value?.pins(side).orEmpty()
+        launchRequest { editor.update { it.withPin(side, choice, pin, nowSeconds()) } }
     }
 
     /** Asks the Obscura API for new lists; only on user action. */

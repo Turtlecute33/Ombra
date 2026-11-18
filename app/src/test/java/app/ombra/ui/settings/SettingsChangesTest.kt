@@ -36,6 +36,13 @@ class SettingsChangesTest {
     }
 
     @Test
+    fun addingADnsServerAgainChangesNothing() {
+        // SettingsEditor applies a change again on top of the push that holds it already (T6).
+        val one = base.withDnsServer("9.9.9.9")
+        assertEquals(one, one.withDnsServer(" 9.9.9.9 "))
+    }
+
+    @Test
     fun theUdpMtuSnapsToStepsInTheRustRange() {
         assertEquals(1280, snapUdpMtu(1000))
         assertEquals(1280, snapUdpMtu(1284))

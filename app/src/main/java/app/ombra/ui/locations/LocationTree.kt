@@ -126,6 +126,13 @@ fun Settings.togglePin(side: LocationSide, choice: Choice, nowSeconds: Long): Se
     else -> this
 }
 
+/**
+ * Pins [choice] when [pin], else unpins it. A second apply changes nothing, unlike [togglePin]:
+ * SettingsEditor applies a change again on top of the push that already holds it (T6).
+ */
+fun Settings.withPin(side: LocationSide, choice: Choice, pin: Boolean, nowSeconds: Long): Settings =
+    if ((choice in pins(side)) == pin) this else togglePin(side, choice, nowSeconds)
+
 // Upstream compared the country code with itself here, so unpinning one city removed every pin with
 // the same city code (obscura-ui LocationView.tsx:76-79). Both codes must match.
 private fun List<PinnedLocation>.toggle(city: Choice.City, nowSeconds: Long): List<PinnedLocation> {

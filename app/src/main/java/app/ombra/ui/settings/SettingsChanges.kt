@@ -31,8 +31,9 @@ fun DnsContentBlock.with(list: BlockList, on: Boolean): DnsContentBlock = when (
 
 fun Settings.withBlockList(list: BlockList, on: Boolean): Settings = copy(dnsBlock = dnsBlock.with(list, on))
 
-/** Adds a DNS server that passed [dnsEntryProblem]. */
-fun Settings.withDnsServer(address: String): Settings = copy(customDns = customDns + address.trim())
+/** Adds a DNS server that passed [dnsEntryProblem]. A second apply changes nothing (T6). */
+fun Settings.withDnsServer(address: String): Settings =
+    address.trim().let { if (it in customDns) this else copy(customDns = customDns + it) }
 
 fun Settings.withoutDnsServer(address: String): Settings = copy(customDns = customDns - address)
 
