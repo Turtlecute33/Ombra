@@ -80,6 +80,11 @@ pub const TUNNEL_MTU: u16 = 1280;
 /// Max UDP payload size used by default if network MTU allows for it
 pub const DEFAULT_UDP_PAYLOAD_SIZE: u16 = 1350;
 
+/// TCP/TLS: the most OK responses that wait for the writer, 4 MiB (Ombra patch P34). The relay sends an op for each
+/// packet, and only the writer takes the OKs away. That is about 12 s of a 1 Gbit/s download while the writer is
+/// blocked, for example by a relay that stops reading.
+const MAX_QUEUED_OKS: usize = 1 << 20;
+
 pub const IPV4_UDP_OVERHEAD: u16 = 20 + 8;
 
 const LIVENESS_MTU: u16 = 100;
@@ -1304,7 +1309,16 @@ impl WgReceiver {
                     let (code, context_id, arg) = recv_message_stream.lock().await.next().await.unwrap()?;
                     let op_code = match code {
                         MessageCode::Op(op_code) => {
-                            traffic_state.send_modify(|traffic_state| traffic_state.queued_oks.push_back(context_id));
+                            let queued = traffic_state.send_if_modified(|traffic_state| {
+                                let room = traffic_state.queued_oks.len() < MAX_QUEUED_OKS;
+                                if room {
+                                    traffic_state.queued_oks.push_back(context_id);
+                                }
+                                room
+                            });
+                            if !queued {
+                                return Err(io::Error::other("the relay does not take the OK responses"));
+                            }
                             op_code
                         }
                         MessageCode::Response(RelayResponseCode::Ok) => continue,
@@ -1525,6 +1539,20 @@ mod tests {
         QuicWgConnHandshaking::start_quic("test".into(), &endpoint, addr, relay.cert.clone(), DEFAULT_RELAY_SNI, tuning)
             .await
             .unwrap()
+    }
+
+    /// Ombra patch P34: when the OKs that wait for a blocked writer reach the cap, the receive fails, so the tunnel
+    /// connects again.
+    #[tokio::test]
+    async fn tcp_tls_receive_fails_when_the_ok_queue_is_full() {
+        let (traffic_state, _watch) = watch::channel(WgTrafficState::default());
+        let op = || Ok((MessageCode::Op(RelayOpCode::WireGuard), MessageContext::MIN_CLIENT_INITIATED, vec![1]));
+        let stream = futures::stream::iter(std::iter::repeat_with(op));
+        let receiver = WgReceiver::TcpTls { traffic_state, recv_message_stream: tokio::sync::Mutex::new(Box::pin(stream)) };
+        for _ in 0..MAX_QUEUED_OKS {
+            receiver.receive_wg_message().await.unwrap();
+        }
+        assert!(receiver.receive_wg_message().await.is_err());
     }
 
     fn quic_connection(handshaking: &QuicWgConnHandshaking) -> &RelayConnection {
