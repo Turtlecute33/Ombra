@@ -76,6 +76,8 @@ class AccountViewModel(
      */
     fun addTime(open: (String) -> Unit) = launchRequest {
         val account = requireNumber()
+        // As in [reveal]: an answer after the visit ended opens nothing.
+        if (!unlocked) return@launchRequest
         paymentOpen = true
         open(account)
     }

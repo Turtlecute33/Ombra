@@ -85,6 +85,7 @@ class AccountViewModelTest {
         advanceUntilIdle()
         assertEquals(emptyList(), core.requests, "no refresh without the payment page")
 
+        vm.onUnlocked()
         vm.addTime { opened += ObscuraLinks.payment(it) }
         advanceUntilIdle()
         assertEquals(listOf("https://obscura.com/pay#account_id=$number"), opened)
@@ -95,6 +96,17 @@ class AccountViewModelTest {
         vm.onResumed()
         advanceUntilIdle()
         assertEquals(listOf(Request.RevealAccountNumber, Request.RefreshAccount), core.requests)
+    }
+
+    @Test
+    fun aNumberAfterTheVisitEndedOpensNoPage() = runTest(dispatcher) {
+        val vm = AccountViewModel(core)
+        val opened = mutableListOf<String>()
+        vm.onUnlocked()
+        vm.addTime { opened += it }
+        vm.endVisit()
+        advanceUntilIdle()
+        assertEquals(emptyList(), opened)
     }
 
     @Test
