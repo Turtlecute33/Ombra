@@ -206,8 +206,8 @@ impl TunnelState {
         let mut capture_failures = 0;
         // When the last tunnel connected (P19).
         let mut connected_at = WakeInstant::now();
-        // Whether the OS has a TUN from this loop, dummy or real (Ombra).
-        let mut os_network_config_set = false;
+        // The target of the TUN that the OS has from this loop, dummy or real (Ombra), without the network (`tun_target`).
+        let mut tun_set_for: Option<TargetState> = None;
         // The tunnel broke or reconnects for a new network, and the target did not change otherwise: the TUN of the last
         // tunnel stays while it connects again. It already captures all traffic (packets to the dead tunnel are dropped),
         // and a dummy config would replace the VPN network two times for each reconnect (VPN-INTEGRATION-1). This holds the target that the kept TUN is for; the
@@ -252,7 +252,10 @@ impl TunnelState {
             let connected_with_same_args = matches!(&*tunnel_state.borrow(), TunnelState::Connected { args, relay_transport, .. }
                 if Some(args) == target_state.tunnel_args.as_ref() && *relay_transport == target_state.relay_transport);
             if connected_with_same_args {
-                kept_for = Some(tun_target(&target_state));
+                // Only a TUN for this target stays (Ombra patch P33): a change that came with the failure of the tunnel,
+                // such as LAN access off, must reach the OS before the reconnect ends.
+                let tun = tun_target(&target_state);
+                kept_for = (tun_set_for.as_ref() == Some(&tun)).then_some(tun);
             } else if kept_for.as_ref() != Some(&tun_target(&target_state)) {
                 kept_for = None;
             }
@@ -306,7 +309,7 @@ impl TunnelState {
                         ControlFlow::Continue(connected)
                     } else {
                         // Not connected, but target state indicates that this is possible and desired. Start capturing traffic and connect.
-                        let captured = if kept_for.is_some() && os_network_config_set {
+                        let captured = if kept_for.is_some() && tun_set_for.is_some() {
                             Ok(())
                         } else {
                             os_impl
@@ -338,7 +341,7 @@ impl TunnelState {
                             ControlFlow::Break(())
                         } else {
                             capture_failures = 0;
-                            os_network_config_set = true;
+                            tun_set_for = Some(tun_target(&target_state));
                             // The wait after failed connects in a row (Ombra patch P9). A change of the target state
                             // ends it and starts over.
                             let retry_delay = connect_retry_delay(connect_failures);
@@ -439,7 +442,7 @@ impl TunnelState {
                             });
                             connect_failures += 1;
                         } else {
-                            os_network_config_set = true;
+                            tun_set_for = Some(tun_target(&target_state));
                             tunnel_state.send_modify(|tunnel_state| {
                                 tunnel_state.set_connected(target_args, target_network_interface, relay_transport, connected)
                             });
@@ -486,7 +489,7 @@ impl TunnelState {
                     if let Err(()) = os_impl.unset_os_network_config().await {
                         tracing::error!(message_id = "PEgDYAz0", "failed to unset network config");
                     } else {
-                        os_network_config_set = false;
+                        tun_set_for = None;
                         // nothing to do until target args change
                         poll_until_change(&mut client_state_watch, &target_state, pending::<Infallible>()).await;
                     }
@@ -511,7 +514,7 @@ impl TunnelState {
                     tunnel_state.send_modify(|tunnel_state| tunnel_state.set_connect_error(TunnelConnectError::NoInternet));
                     // A connect that starts without a network captures traffic too (Ombra), so apps do not send outside
                     // the tunnel when the network comes. A TUN that is up stays as it is.
-                    if !os_network_config_set {
+                    if tun_set_for.is_none() {
                         let dummy = OsNetworkConfig::dummy(
                             *dns_content_block,
                             *use_system_dns,
@@ -525,7 +528,7 @@ impl TunnelState {
                         if let Err(()) = os_impl.set_os_network_config(dummy, QuicWgConnPacketSender::new(None)).await {
                             tracing::error!(message_id = "Vq8sNw2D", "failed to set dummy network config without a network");
                         } else {
-                            os_network_config_set = true;
+                            tun_set_for = Some(tun_target(&target_state));
                         }
                     }
                     // nothing to do until target args changes or a network device becomes available
