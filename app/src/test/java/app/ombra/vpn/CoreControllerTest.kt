@@ -327,6 +327,29 @@ class CoreControllerTest {
     }
 
     @Test
+    fun logoutForgetsTheAccountFilesAlsoWhenRustCannotSaveIt() = runTest {
+        // Rust logged out in memory; only the config save failed (T2).
+        core.failures[ManagerCmd.Logout::class] = ManagerCmdErrorCode.ConfigSaveError.wire
+        var forgotten = false
+
+        val error = assertFailsWith<ErrorCodeException> { controller().logout { forgotten = true } }
+
+        assertEquals(ManagerCmdErrorCode.ConfigSaveError.wire, error.errorCode)
+        assertTrue(forgotten)
+        assertEquals(listOf<ManagerCmd>(ManagerCmd.Logout) + allSettingsCommands(), core.sent)
+    }
+
+    @Test
+    fun aRefusedLogoutForgetsNothing() = runTest {
+        core.failures[ManagerCmd.Logout::class] = ManagerCmdErrorCode.Other.wire
+        var forgotten = false
+
+        assertFailsWith<ErrorCodeException> { controller().logout { forgotten = true } }
+
+        assertFalse(forgotten)
+    }
+
+    @Test
     fun deleteAccountLogsOutOnlyAfterTheServerDeletedIt() = runTest {
         controller().deleteAccount()
         assertEquals(listOf(ManagerCmd.ApiDeleteAccount, ManagerCmd.Logout), core.sent.take(2))

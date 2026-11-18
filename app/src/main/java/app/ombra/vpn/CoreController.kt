@@ -8,6 +8,7 @@ import app.ombra.core.model.ConnectErrorCode
 import app.ombra.core.model.CoreCall
 import app.ombra.core.model.CoreCommands
 import app.ombra.core.model.ExitList
+import app.ombra.core.model.ManagerCmdErrorCode
 import app.ombra.core.model.OneRelay
 import app.ombra.core.model.Status
 import app.ombra.core.model.VpnStatus
@@ -148,12 +149,18 @@ class CoreController(
 
     /**
      * Also disconnects: Rust stops the tunnel when the account goes away. [onLoggedOut] runs as soon as
-     * Rust logged out, also when [applyAllSettings] fails after it (SECURITY-2).
+     * Rust logged out, also when [applyAllSettings] fails after it (SECURITY-2), and also when Rust
+     * logged out in memory but could not save that: the user asked to forget the account (T2).
      */
     suspend fun logout(onLoggedOut: () -> Unit = {}) {
         vpnWanted.value = false
         try {
-            core.call(CoreCommands.logout())
+            try {
+                core.call(CoreCommands.logout())
+            } catch (e: ErrorCodeException) {
+                if (e.errorCode == ManagerCmdErrorCode.ConfigSaveError.wire) onLoggedOut()
+                throw e
+            }
             onLoggedOut()
         } finally {
             applyAllSettings()
