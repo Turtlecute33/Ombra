@@ -202,6 +202,8 @@ impl TunnelState {
         let mut udp_handshake_failures = 0;
         // Other failed connects in a row (Ombra patch P9), and tunnels that broke soon after the connect (P19).
         let mut connect_failures = 0;
+        // Dummy TUNs in a row that the OS refused (Ombra patch P31).
+        let mut capture_failures = 0;
         // When the last tunnel connected (P19).
         let mut connected_at = WakeInstant::now();
         // Whether the OS has a TUN from this loop, dummy or real (Ombra).
@@ -326,8 +328,16 @@ impl TunnelState {
                         if let Err(()) = captured {
                             tracing::error!(message_id = "eTwAHomq", "failed to set dummy network config");
                             tunnel_state.send_modify(|tunnel_state| tunnel_state.set_connect_error(TunnelConnectError::SetOsNetworkConfig));
+                            // Wait as after failed connects (Ombra patch P31). Upstream tried again each second without
+                            // end, for example while the VPN service was gone. A change of the target state ends the wait.
+                            capture_failures += 1;
+                            let delay = retry_wait(connect_retry_delay(capture_failures));
+                            if poll_until_change(&mut client_state_watch, &target_state, delay).await.is_none() {
+                                capture_failures = 0;
+                            }
                             ControlFlow::Break(())
                         } else {
+                            capture_failures = 0;
                             os_network_config_set = true;
                             // The wait after failed connects in a row (Ombra patch P9). A change of the target state
                             // ends it and starts over.
@@ -701,6 +711,30 @@ mod tests {
         .await
         .expect("the config was not set again after the refresh");
         assert!(tunnel_state.borrow().is_connecting());
+    }
+
+    /// Ombra patch P31: a dummy TUN that the OS refuses is tried again with the connect backoff, not each second.
+    #[tokio::test]
+    async fn a_refused_dummy_tun_is_tried_again_with_a_backoff() {
+        let dir = tempfile::tempdir().unwrap();
+        let client_state = ClientState::new(dir.path().into(), WgKeyStore::None, None, "test".into(), false).unwrap();
+        let os = Arc::new(RecordingOs::default());
+        os.refuse_set.store(true, std::sync::atomic::Ordering::Relaxed);
+        let _tunnel_state = TunnelState::new(client_state.clone(), os.clone());
+
+        client_state.set_network_interface(Some(loopback(0)));
+        client_state.set_tunnel_target_state(Some(TunnelArgs::default()), Some(true));
+        let sets = || os.calls().iter().filter(|call| **call == "set").count();
+        timeout(Duration::from_secs(10), async {
+            while sets() < 3 {
+                sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .expect("no third try");
+        // The tries come after 0 s, 1 s and 2 s; the third failure waits 3 s. Without the backoff a try came each second.
+        sleep(Duration::from_millis(2500)).await;
+        assert_eq!(sets(), 3);
     }
 
     /// A connect that starts without a network sets the dummy config, so apps cannot send outside the tunnel when the

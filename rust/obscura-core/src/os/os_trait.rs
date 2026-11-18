@@ -82,6 +82,8 @@ impl<O: Os> Os for RevocableOs<O> {
 #[derive(Default)]
 pub(crate) struct RecordingOs {
     calls: std::sync::Mutex<Vec<&'static str>>,
+    /// `set_os_network_config` fails, as when Android refuses the TUN.
+    pub refuse_set: std::sync::atomic::AtomicBool,
 }
 
 #[cfg(test)]
@@ -99,6 +101,9 @@ impl RecordingOs {
 impl Os for RecordingOs {
     async fn set_os_network_config(&self, _network_config: OsNetworkConfig, _tunnel: QuicWgConnPacketSender) -> Result<(), ()> {
         self.record("set");
+        if self.refuse_set.load(std::sync::atomic::Ordering::Relaxed) {
+            return Err(());
+        }
         Ok(())
     }
 
