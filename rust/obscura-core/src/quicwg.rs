@@ -1045,13 +1045,15 @@ impl QuicWgConnHandshaking {
         if let Err(error) = self.stop().await {
             tracing::warn!(message_id = "b0UeytEt", ?error, "error while abandoning handshake")
         } else {
+            // Each wait has the step timeout (Ombra patch P35). `stopped` waits until the relay acknowledges, which on a
+            // lossy path took up to the 600 s idle timeout and kept the connection and its socket.
             match &mut self.transport {
                 Transport::Quic { send, .. } => {
                     _ = send.finish();
-                    _ = send.stopped().await;
+                    _ = timeout(QUIC_STEP_TIMEOUT, send.stopped()).await;
                 }
                 Transport::TcpTls(tls_stream) => {
-                    _ = tls_stream.shutdown().await;
+                    _ = timeout(QUIC_STEP_TIMEOUT, tls_stream.shutdown()).await;
                 }
             }
             drop(self);
