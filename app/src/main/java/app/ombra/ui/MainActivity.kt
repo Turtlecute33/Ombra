@@ -53,6 +53,8 @@ class MainActivity : ComponentActivity() {
         tunnel = app.core as? TunnelControl ?: VpnConsent(this, app.prefs)
         // Demo data holds no secrets, and its screens must stay capturable for UI review.
         val secureWindow = if (app.isDemo) null else SecureWindow(window)
+        // Before the first frame: the LaunchedEffect below runs only after it (T5).
+        secureWindow?.secureAll = app.prefs.secureAllScreens.value
 
         setContent {
             val theme by app.prefs.theme.collectAsStateWithLifecycle()
