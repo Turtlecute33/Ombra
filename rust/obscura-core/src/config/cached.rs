@@ -33,8 +33,10 @@ impl<T> ConfigCached<T> {
         ConfigCached { version, last_updated: SystemTime::now(), value: self.value }
     }
 
+    /// A time in the future (the clock went back) counts as stale, as in the DNS cache (Ombra patch P30). Upstream counted
+    /// it as fresh until the clock passed it, so the lists were not fetched again until then.
     pub fn staleness(&self) -> Duration {
-        self.last_updated.elapsed().unwrap_or(Duration::ZERO)
+        self.last_updated.elapsed().unwrap_or(Duration::MAX)
     }
 
     pub fn version(&self) -> &Version {
@@ -76,5 +78,18 @@ impl std::fmt::Debug for Version {
             Version::Artificial(uuid) => write!(f, "Version::Artificial({})", uuid),
             Version::ETag(etag) => write!(f, "Version::ETag({:?})", String::from_utf8_lossy(etag)),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_time_in_the_future_is_stale() {
+        let mut list = ConfigCached::new((), Version::artificial());
+        assert!(list.staleness() < Duration::from_secs(60));
+        list.last_updated = SystemTime::now() + Duration::from_secs(3600);
+        assert_eq!(list.staleness(), Duration::MAX);
     }
 }
