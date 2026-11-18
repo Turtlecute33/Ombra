@@ -201,7 +201,8 @@ class CoreController(
             // Rust rebuilds its config from defaults on an account change, even when saving it then fails.
             applyAllSettings()
             // Uses the tunnel args just restored. Without a reset Rust is still active, so this does nothing.
-            if (reconnect) {
+            // A Disconnect during the login (notification, tile, shortcut) cleared vpnWanted: keep it (T3).
+            if (reconnect && vpnWanted.value) {
                 try {
                     core.call(CoreCommands.connect(null))
                 } catch (e: ErrorCodeException) {

@@ -3,6 +3,7 @@ package app.ombra.vpn
 import app.ombra.core.AccountNumber
 import app.ombra.core.ffi.ErrorCodeException
 import app.ombra.core.model.ConnectErrorCode
+import app.ombra.core.model.CoreCall
 import app.ombra.core.model.ExitSelector
 import app.ombra.core.model.ManagerCmd
 import app.ombra.core.model.ManagerCmdErrorCode
@@ -244,6 +245,31 @@ class CoreControllerTest {
             core.sent,
         )
         assertTrue(wanted.value)
+    }
+
+    @Test
+    fun aDisconnectDuringTheLoginIsNotUndone() = runTest {
+        core.setStatus(VpnStatus.Connecting(TunnelArgs(), connectError = ConnectErrorCode.NotLoggedIn), accountId = null)
+        wanted.value = true
+        // The user taps Disconnect in the notification while the login waits for the API (T3).
+        val disconnectDuringLogin = object : CoreChannel by core {
+            override suspend fun <R> call(call: CoreCall<R>): R {
+                if (call.command is ManagerCmd.Login) wanted.value = false
+                return core.call(call)
+            }
+        }
+        val controller = CoreController(disconnectDuringLogin, store, wanted, backgroundScope, testScheduler.timeSource, StandardTestDispatcher(testScheduler))
+        controller.start()
+        runCurrent()
+        core.sent.clear()
+
+        controller.login(number)
+
+        assertEquals(
+            listOf(ManagerCmd.SetInNewAccountFlow(false), ManagerCmd.Login(number, validate = true)) + allSettingsCommands(),
+            core.sent,
+        )
+        assertFalse(wanted.value)
     }
 
     @Test
