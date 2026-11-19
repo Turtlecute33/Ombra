@@ -11,6 +11,13 @@
     <string name="settings_kill_switch">Kill switch</string>
     <string name="settings_advanced_summary">WireGuard key, hosts, diagnostics</string>
     <string name="settings_about_summary">Version %1$s, who sees what, licences</string>
+    <string name="settings_support">Support</string>
+    <string name="support_donate">Donate bitcoin</string>
+    <string name="support_donate_detail">btcpay.priorato.org</string>
+    <string name="support_x">X</string>
+    <string name="support_x_detail">\@turtlecute33</string>
+    <string name="support_nostr">Nostr</string>
+    <string name="support_nostr_detail">turtlecute@primal.net</string>
     <string name="onoff_on">On</string>
     <string name="onoff_off">Off</string>
     <string name="onoff_unknown">Unknown</string>

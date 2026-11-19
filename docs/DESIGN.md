@@ -327,6 +327,7 @@ Screens (bottom navigation with 3 destinations: Connect, Locations, Settings):
      diagnostics (logs, debug bundle with consent screen), connection details (relay IP, exit key
      check link to the provider URL).
    - About: version, upstream credit, licences (GPL-3.0 + third-party), source link.
+   - Support: links to donate (BTCPay) and to the developer on X and Nostr; they open in the browser.
 5. Quick Settings tile, static app shortcuts (Connect / Disconnect), notification with a Disconnect
    action. Notification text shows the exit city only when `hideNotificationDetails` is false.
 

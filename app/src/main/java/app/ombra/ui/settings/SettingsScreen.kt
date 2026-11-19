@@ -32,6 +32,7 @@ import app.ombra.data.UiPrefs
 import app.ombra.ipc.Settings
 import app.ombra.ipc.SplitMode
 import app.ombra.ipc.SystemState
+import app.ombra.ui.OmbraLinks
 import app.ombra.ui.appDetailsIntent
 import app.ombra.ui.components.Icons
 import app.ombra.ui.components.ListRow
@@ -44,6 +45,7 @@ import app.ombra.ui.components.SectionHeader
 import app.ombra.ui.components.SwitchRow
 import app.ombra.ui.nav.Page
 import app.ombra.ui.openExternal
+import app.ombra.ui.openLink
 import app.ombra.ui.theme.OmbraTheme
 import app.ombra.ui.theme.Spacing
 
@@ -99,6 +101,13 @@ fun SettingsScreen(core: CoreSource, editor: SettingsEditor, prefs: UiPrefs, con
                 supporting = stringResource(R.string.settings_about_summary, BuildConfig.VERSION_NAME),
             )
         }
+
+        SectionHeader(stringResource(R.string.settings_support))
+        RowGroup {
+            LinkRow(stringResource(R.string.support_donate), stringResource(R.string.support_donate_detail), OmbraLinks.DONATE)
+            LinkRow(stringResource(R.string.support_x), stringResource(R.string.support_x_detail), OmbraLinks.X)
+            LinkRow(stringResource(R.string.support_nostr), stringResource(R.string.support_nostr_detail), OmbraLinks.NOSTR)
+        }
         Spacer(Modifier.height(Spacing.xl))
     }
 }
@@ -113,6 +122,15 @@ private fun AccountRow(account: AccountSummary, onClick: () -> Unit) {
         onClick = onClick,
     ) {
         Icon(Icons.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+/** A row that opens [url] in the browser. */
+@Composable
+private fun LinkRow(title: String, supporting: String, url: String) {
+    val context = LocalContext.current
+    ListRow(title = title, supporting = supporting, onClick = { openLink(context, url) }) {
+        Icon(Icons.OpenInNew, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 

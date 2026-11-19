@@ -22,6 +22,12 @@ object ObscuraLinks {
 object OmbraLinks {
     /** The source code of Ombra (GPL-3.0). */
     const val SOURCE = "https://github.com/Turtlecute33/Ombra"
+
+    /** Settings › Support. The browser opens them; the app itself does not connect to these hosts. */
+    const val DONATE =
+        "https://btcpay.priorato.org/api/v1/invoices?storeId=31ntjiLSTmSSuTC6FrR81z6AAku46bLF2FKAL3MFHtV5&orderId=Donation&checkoutDesc=Donation&currency=USD"
+    const val X = "https://x.com/turtlecute33"
+    const val NOSTR = "https://primal.net/turtlecute"
 }
 
 /** Opens [url] in the browser; says so when no app can open it. */

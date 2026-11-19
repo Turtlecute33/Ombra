@@ -52,6 +52,8 @@ Android 16 or newer (API 36), arm64.
   name of the API (in the DNS lookup and in TLS), and the API sees your IP address.
 - The Obscura API sees that you use Ombra and which version: the User-Agent is
   `Ombra-Android/<version>`, as the Obscura API documentation asks of other clients.
+- Settings › Support has links to donate and to the developer on X and Nostr. They open in your
+  browser. The app itself does not connect to these hosts.
 
 The full list of patches to the Rust core is in [rust/UPSTREAM.md](rust/UPSTREAM.md).
 
