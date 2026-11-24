@@ -35,6 +35,8 @@ fun OmbraApp(app: AppViewModel, tunnel: TunnelControl) {
                 AppStage.Main -> MainShell(app.core, app.editor, tunnel, app.prefs)
             }
         }
+        // Not in demo mode: its screens are for UI review and screenshots.
+        if (stage == AppStage.Main && !app.isDemo) DonatePrompt()
     }
 }
 

@@ -18,6 +18,11 @@
     <string name="support_x_detail">\@turtlecute33</string>
     <string name="support_nostr">Nostr</string>
     <string name="support_nostr_detail">turtlecute@primal.net</string>
+    <!-- Donation card at app start (DonatePrompt) -->
+    <string name="donate_title">Enjoying Ombra?</string>
+    <string name="donate_text">Buy the dev a beer or send a few sats. Sats buy AI tokens for security reviews. Beer buys a happy dev.</string>
+    <string name="donate_action">Donate</string>
+    <string name="donate_later">Remind me in 3 months</string>
     <string name="onoff_on">On</string>
     <string name="onoff_off">Off</string>
     <string name="onoff_unknown">Unknown</string>

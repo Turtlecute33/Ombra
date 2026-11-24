@@ -328,6 +328,9 @@ Screens (bottom navigation with 3 destinations: Connect, Locations, Settings):
      check link to the provider URL).
    - About: version, upstream credit, licences (GPL-3.0 + third-party), source link.
    - Support: links to donate (BTCPay) and to the developer on X and Nostr; they open in the browser.
+   - Donation card (`DonatePrompt`): a dialog when the user opens the app from the launcher, on the main
+     shell, not in demo mode. First 7 days after the install, then at most once each 90 days (365 days
+     after Donate). The next time is set when the card shows. No notification, no request.
 5. Quick Settings tile, static app shortcuts (Connect / Disconnect), notification with a Disconnect
    action. Notification text shows the exit city only when `hideNotificationDetails` is false.
 

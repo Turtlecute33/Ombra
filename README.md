@@ -54,6 +54,8 @@ Android 16 or newer (API 36), arm64.
   `Ombra-Android/<version>`, as the Obscura API documentation asks of other clients.
 - Settings › Support has links to donate and to the developer on X and Nostr. They open in your
   browser. The app itself does not connect to these hosts.
+- A small donation card shows when you open the app: first 7 days after the install, then at most
+  once each 3 months. It sends no notification and makes no request.
 
 The full list of patches to the Rust core is in [rust/UPSTREAM.md](rust/UPSTREAM.md).
 
