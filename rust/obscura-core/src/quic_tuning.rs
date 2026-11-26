@@ -217,13 +217,6 @@ impl RelayConnection {
     pub fn local_addr(&self) -> std::net::SocketAddr {
         self.endpoint.endpoint.local_addr().unwrap()
     }
-
-    /// For a connection attempt that failed before there was a connection.
-    pub fn connect_failed(quic_tuning: &QuicTuning, reason: &ConnectionError) {
-        if quic_tuning.ack_frequency {
-            ACK_FREQUENCY.connection_closed(reason);
-        }
-    }
 }
 
 impl Deref for RelayConnection {

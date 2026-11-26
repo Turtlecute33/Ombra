@@ -8,6 +8,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -15,6 +16,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
@@ -88,81 +90,94 @@ fun ConnectScreen(
         // The same problem as at the last start gives no new value above.
         if (tunnel.problem.value != null) vm.onStartFailed()
     }
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(contentPadding)
-            .padding(horizontal = Spacing.screen),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
+    // The content is at least as high as the viewport, so the zones fill a tall phone; it scrolls when it is higher.
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val minHeight = maxHeight - contentPadding.calculateTopPadding() - contentPadding.calculateBottomPadding()
         Column(
-            modifier = Modifier.widthIn(max = Spacing.maxContentWidth),
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(contentPadding)
+                .padding(horizontal = Spacing.screen),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Brand()
-            Spacer(Modifier.height(Spacing.l))
-            Header(state, lockdown = system?.lockdown == true)
-            Spacer(Modifier.height(Spacing.s))
-            ConnectControl(
-                look = lookOf(state),
-                actionLabel = stringResource(actionLabel(state)),
-                stateLabel = stringResource(titleOf(state)),
-                enabled = state.phase != ConnectPhase.Loading && state.phase != ConnectPhase.Disconnecting,
-                onClick = {
-                    if (state.phase == ConnectPhase.Disconnected) {
-                        connect()
-                    } else {
-                        vm.onDisconnectRequested()
-                        tunnel.disconnect()
-                    }
-                },
-            )
-            // The control itself announces the action.
-            Text(
-                stringResource(actionLabel(state)),
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.clearAndSetSemantics {},
-            )
-            Spacer(Modifier.height(Spacing.l))
-            Messages(
-                state = state,
-                startProblem = startProblem,
-                onFix = { fix -> if (fix == ErrorFix.OpenAccount) onOpenAccount() else vm.apply(fix) },
-                onRetry = connect,
-                onOpenVpnSettings = { openExternal(context, Intent(AndroidSettings.ACTION_VPN_SETTINGS)) },
-                onOpenAccount = onOpenAccount,
-            )
-            if (system?.backgroundRestricted == true && !batteryHintDismissed) {
-                Notice(
-                    text = stringResource(R.string.battery_hint),
-                    tone = NoticeTone.Info,
-                    actionLabel = stringResource(R.string.battery_hint_action),
-                    // The hint goes away by itself when the restriction is removed (UI-UX-3).
-                    onAction = { openExternal(context, appDetailsIntent(context)) },
-                    onDismiss = prefs::dismissBatteryHint,
-                )
-                Spacer(Modifier.height(Spacing.m))
-            }
-            RouteCard(
-                entry = state.entry,
-                exit = state.exit,
-                protected = state.phase == ConnectPhase.Connected,
-                onEntryClick = onChooseEntry,
-                onExitClick = onChooseExit,
-            )
-            AnimatedVisibility(
-                visible = state.phase == ConnectPhase.Connected,
-                enter = fadeIn() + expandVertically(),
-                exit = fadeOut() + shrinkVertically(),
+            Column(
+                modifier = Modifier.widthIn(max = Spacing.maxContentWidth).heightIn(min = minHeight),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.SpaceBetween,
             ) {
-                Column {
-                    Spacer(Modifier.height(Spacing.m))
-                    LiveStatsCard(stats, stringResource(protocolLabel(state.protocol)), onDetails = { showDetails = true })
+                Brand()
+                // The vertical padding is the least gap to the zones above and below.
+                Column(
+                    modifier = Modifier.padding(vertical = Spacing.l),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Header(state, lockdown = system?.lockdown == true)
+                    Spacer(Modifier.height(Spacing.l))
+                    ConnectControl(
+                        look = lookOf(state),
+                        actionLabel = stringResource(actionLabel(state)),
+                        stateLabel = stringResource(titleOf(state)),
+                        enabled = state.phase != ConnectPhase.Loading && state.phase != ConnectPhase.Disconnecting,
+                        onClick = {
+                            if (state.phase == ConnectPhase.Disconnected) {
+                                connect()
+                            } else {
+                                vm.onDisconnectRequested()
+                                tunnel.disconnect()
+                            }
+                        },
+                    )
+                    // The control itself announces the action.
+                    Text(
+                        stringResource(actionLabel(state)),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.clearAndSetSemantics {},
+                    )
+                }
+                Column(Modifier.padding(bottom = Spacing.l)) {
+                    // A part that is not shown adds no node, so spacedBy leaves no gap for it.
+                    Column(verticalArrangement = Arrangement.spacedBy(Spacing.m)) {
+                        Messages(
+                            state = state,
+                            startProblem = startProblem,
+                            onFix = { fix -> if (fix == ErrorFix.OpenAccount) onOpenAccount() else vm.apply(fix) },
+                            onRetry = connect,
+                            onOpenVpnSettings = { openExternal(context, Intent(AndroidSettings.ACTION_VPN_SETTINGS)) },
+                            onOpenAccount = onOpenAccount,
+                        )
+                        if (system?.backgroundRestricted == true && !batteryHintDismissed) {
+                            Notice(
+                                text = stringResource(R.string.battery_hint),
+                                tone = NoticeTone.Info,
+                                actionLabel = stringResource(R.string.battery_hint_action),
+                                // The hint goes away by itself when the restriction is removed (UI-UX-3).
+                                onAction = { openExternal(context, appDetailsIntent(context)) },
+                                onDismiss = prefs::dismissBatteryHint,
+                            )
+                        }
+                        RouteCard(
+                            entry = state.entry,
+                            exit = state.exit,
+                            protected = state.phase == ConnectPhase.Connected,
+                            onEntryClick = onChooseEntry,
+                            onExitClick = onChooseExit,
+                        )
+                    }
+                    // Outside spacedBy: the gap is inside the animated content, so it grows with the card.
+                    AnimatedVisibility(
+                        visible = state.phase == ConnectPhase.Connected,
+                        enter = fadeIn() + expandVertically(),
+                        exit = fadeOut() + shrinkVertically(),
+                    ) {
+                        Column {
+                            Spacer(Modifier.height(Spacing.m))
+                            LiveStatsCard(stats, stringResource(protocolLabel(state.protocol)), onDetails = { showDetails = true })
+                        }
+                    }
                 }
             }
-            Spacer(Modifier.height(Spacing.xl))
         }
     }
 
@@ -199,7 +214,7 @@ private fun Header(state: ConnectUiState, lockdown: Boolean) {
         )
         else -> StatusHeader(
             title = stringResource(titleOf(state)),
-            subtitle = stringResource(detailOf(state.phase, lockdown)),
+            subtitle = detailOf(state.phase, lockdown)?.let { stringResource(it) },
             tone = if (state.phase == ConnectPhase.Connected) StatusTone.Positive else StatusTone.Neutral,
         )
     }
@@ -242,7 +257,6 @@ private fun Messages(
         )
         else -> return
     }
-    Spacer(Modifier.height(Spacing.m))
 }
 
 private fun lookOf(state: ConnectUiState): ControlLook = when (state.phase) {
@@ -270,12 +284,13 @@ private fun titleOf(state: ConnectUiState): Int = when (state.phase) {
 }
 
 /** [lockdown]: "Block connections without VPN" is on, so while off Android blocks all traffic. */
-private fun detailOf(phase: ConnectPhase, lockdown: Boolean): Int = when (phase) {
+private fun detailOf(phase: ConnectPhase, lockdown: Boolean): Int? = when (phase) {
     ConnectPhase.Loading -> R.string.status_loading_detail
-    ConnectPhase.Disconnected -> if (lockdown) R.string.status_off_lockdown_detail else R.string.status_off_detail
+    // "Not protected" and "Protected" need no second line. The lockdown line stays: it tells why the network is dead.
+    ConnectPhase.Disconnected -> if (lockdown) R.string.status_off_lockdown_detail else null
     ConnectPhase.Connecting -> R.string.status_connecting_detail
     ConnectPhase.Reconnecting -> R.string.status_reconnecting_detail
-    ConnectPhase.Connected -> R.string.status_on_detail
+    ConnectPhase.Connected -> null
     ConnectPhase.Disconnecting -> R.string.status_disconnecting_detail
 }
 

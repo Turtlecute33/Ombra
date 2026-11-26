@@ -241,6 +241,11 @@ interface IResultCallback { oneway void onResult(String okJson, String errorCode
   - `:vpn` encodes each push once, on the `ombra-ipc` thread. The UI decompresses and decodes on the
     binder thread that delivers the push, never on the main thread. Binder delivers the oneway calls
     to one object one at a time and in order, so a compressed push cannot overtake a plain one.
+  - Each bind sends a full snapshot, and the UI binds again at each return to the app. `:vpn` keeps
+    the last compressed push of each kind with its JSON String and uses it again for the same String
+    (`CoreService.encode`). The UI skips a compressed push whose bytes are equal to the last one of
+    that kind (`StateListener`), so an unchanged list is not decompressed and decoded again. If code
+    ever resets the decoded lists in `CoreClient`, it must also reset the bytes that the listener keeps.
   - A failed push does not unregister the listener: binder also reports a full async buffer of a
     live process as `DeadObjectException`, and `RemoteCallbackList` drops a dead listener by itself.
   - Debug builds only: `StatePushProbe` (process `:probe`) sends 2000 exits and 300 relays to
@@ -309,6 +314,10 @@ Screens (bottom navigation with 3 destinations: Connect, Locations, Settings):
    entry or exit to choose. Live row: download and upload rate, latency, protocol, session time.
    Transient errors (`other` during retries, `noInternet` during a reconnect) show only if they last
    more than about 5 s. Clear actionable text for every `connectError`.
+   Layout: the content is at least as high as the screen. The brand row is at the top, the status and
+   the control are in the centre of the free space, and the notices, the route card and the live row
+   are at the bottom, 12 dp apart. A higher content scrolls.
+   "Protected" and "Not protected" have no second line; the other states and lockdown keep theirs.
 3. **Locations**: tabs or a switch for Exit / Entry. Search, pinned on top, "Fastest" (any), countries
    that expand to cities, and cities that expand to single servers (show `datacenter_id`, provider).
    Pin by long press or a trailing icon. Flags from regional-indicator emoji.
@@ -405,7 +414,9 @@ Android side:
 - `FLAG_SECURE` on onboarding and account screens, and an option for all screens.
   `setHideOverlayWindows(true)` (permission `HIDE_OVERLAY_WINDOWS`) on the activity.
 - No exported components except: the launcher activity, `OmbraVpnService` (protected by
-  `BIND_VPN_SERVICE`), `QuickTileService` (protected by `BIND_QUICK_SETTINGS_TILE`).
+  `BIND_VPN_SERVICE`), `QuickTileService` (protected by `BIND_QUICK_SETTINGS_TILE`). The manifest
+  removes the exported `ProfileInstallReceiver` of `profileinstaller` (for adb, guarded by `DUMP`);
+  the profile still installs through the startup initializer.
 - Network security config: cleartext off, system CAs only (Kotlin makes no network calls anyway).
 - API requests go outside the tunnel: Rust never calls `protect()`, so our package stays outside the
   TUN (section 7). Each request uses the physical network, with the API name in the TLS SNI and in
@@ -424,7 +435,7 @@ Android side:
   developer one free month each at the first payment, and deletes the link one month after that. The
   UI sends only the switch value over IPC, never a code. The README tells the user.
 - Account screen: the platform `BiometricPrompt` (`BIOMETRIC_STRONG or DEVICE_CREDENTIAL`) before
-  the first Show, Copy, Add time or final Delete of a visit. One prompt per visit; the visit ends when
+  the first Show, Copy, Add time, Log out or final Delete of a visit. One prompt per visit; the visit ends when
   the screen stops. No prompt when the phone has no screen lock (`KeyguardManager.isDeviceSecure`).
   Onboarding shows the number of a new account with no prompt, so that the user can save it at once.
 - The debug bundle makes network probes and includes logcat: consent screen; delete old zips. The

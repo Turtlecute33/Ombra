@@ -110,6 +110,24 @@ class OnboardingViewModelTest {
     }
 
     @Test
+    fun anUnknownTrialIsCheckedAgainWhenCreateOpensAgain() = runTest(dispatcher) {
+        core.failures[Request.ServiceStatus] = "apiUnreachable"
+        val vm = viewModel()
+        vm.open(OnboardingStep.Create)
+        runCurrent()
+        assertEquals(Trial.Unknown, vm.trial)
+
+        core.failures.remove(Request.ServiceStatus)
+        core.answers[Request.ServiceStatus] =
+            IpcJson.encodeToString(ServiceStatus.serializer(), ServiceStatus(FreeTrialStatus(available = true)))
+        vm.back()
+        vm.open(OnboardingStep.Create)
+        runCurrent()
+        assertEquals(Trial.Available, vm.trial)
+        assertEquals(2, core.requests.count { it == Request.ServiceStatus })
+    }
+
+    @Test
     fun createShowsTheNewNumber() = runTest(dispatcher) {
         core.answers[Request.CreateAccount(referral = true)] = jsonString(number)
         val vm = viewModel()

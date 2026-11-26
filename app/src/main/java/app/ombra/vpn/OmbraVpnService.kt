@@ -11,12 +11,15 @@ import app.ombra.core.ffi.RustFfi
 import app.ombra.core.model.CoreCommands
 import app.ombra.core.model.TunnelArgs
 import app.ombra.core.model.VpnStatus
+import app.ombra.ipc.SplitMode
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -148,10 +151,13 @@ class OmbraVpnService : VpnService(), Callbacks.NetworkConfigHandler {
         scope.launch { merge(CoreHost.status, CoreHost.vpnWantedFlow).collect { stopIfIdle() } }
         scope.launch { CoreHost.statusView.collect(::showStatus) }
         scope.launch {
-            CoreHost.vpnWantedFlow.collect {
-                wakeMonitor.setEnabled(it)
-                packageMonitor.setEnabled(it)
-            }
+            CoreHost.vpnWantedFlow.collect { wakeMonitor.setEnabled(it) }
+        }
+        // Only a split list can need a TUN rebuild; a change of the list is seen at once.
+        scope.launch {
+            combine(CoreHost.vpnWantedFlow, CoreHost.settingsStore.settings) { wanted, settings ->
+                wanted && settings.splitMode != SplitMode.Off && settings.splitApps.isNotEmpty()
+            }.distinctUntilChanged().collect { packageMonitor.setEnabled(it) }
         }
     }
 

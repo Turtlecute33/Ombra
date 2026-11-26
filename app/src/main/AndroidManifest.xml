@@ -79,6 +79,12 @@
                 tools:node="remove" />
         </provider>
 
+        <!-- profileinstaller adds an exported receiver for adb use. Ombra does not use it; the profile
+             installs through the startup initializer, which stays. -->
+        <receiver
+            android:name="androidx.profileinstaller.ProfileInstallReceiver"
+            tools:node="remove" />
+
         <!-- Shares debug bundles (cache/debug-archives only) with a per-URI read grant. -->
         <provider
             android:name="androidx.core.content.FileProvider"

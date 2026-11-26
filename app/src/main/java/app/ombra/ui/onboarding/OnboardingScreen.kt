@@ -45,8 +45,10 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -235,7 +237,10 @@ private fun Login(vm: OnboardingViewModel) {
                     AccountNumberInput.Check.Invalid -> MaterialTheme.colorScheme.error
                     AccountNumberInput.Check.Valid -> OmbraTheme.status.success
                 },
-                modifier = Modifier.weight(1f),
+                // The typo and valid lines are spoken when they appear; the digit count is not, it would speak on each key.
+                modifier = Modifier.weight(1f).then(
+                    if (check == AccountNumberInput.Check.Incomplete) Modifier else Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+                ),
             )
             TextButton(onClick = {
                 scope.launch {

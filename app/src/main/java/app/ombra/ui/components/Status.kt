@@ -41,12 +41,12 @@ import app.ombra.ui.theme.Spacing
 enum class StatusTone { Neutral, Positive, Negative }
 
 /**
- * The state in words above the connect control. Screen readers announce a new [title] once: a
- * live-region node on top of the title holds it as its description. The fade between two titles
- * happens outside that node, so it sends no further changes.
+ * The state in words above the connect control; [subtitle] is an optional second line. Screen
+ * readers announce a new [title] once: a live-region node on top of the title holds it as its
+ * description. The fade between two titles happens outside that node, so it sends no further changes.
  */
 @Composable
-fun StatusHeader(title: String, subtitle: String, tone: StatusTone, modifier: Modifier = Modifier) {
+fun StatusHeader(title: String, subtitle: String?, tone: StatusTone, modifier: Modifier = Modifier) {
     val color by animateColorAsState(
         when (tone) {
             StatusTone.Neutral -> MaterialTheme.colorScheme.onSurface
@@ -78,12 +78,14 @@ fun StatusHeader(title: String, subtitle: String, tone: StatusTone, modifier: Mo
             )
         }
         AnimatedContent(subtitle, transitionSpec = { fadeIn() togetherWith fadeOut() }, label = "subtitle") { text ->
-            Text(
-                text,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center,
-            )
+            if (text != null) {
+                Text(
+                    text,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                )
+            }
         }
     }
 }

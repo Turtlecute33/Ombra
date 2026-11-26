@@ -99,9 +99,22 @@ class CoreService : Service() {
         }
     }
 
-    /** Null, with a log line, when [json] is too large to send even compressed. */
-    private fun encode(kind: Int, json: String): StatePush? = StatePush.of(json).also {
-        if (it == null) Log.e(TAG, "state push of kind $kind dropped: ${json.length / 1024} Ki chars of JSON")
+    /** The last compressed push of each kind, with the JSON it came from. Only [CoreHost.ipcDispatcher] touches it. */
+    private val gzipped = HashMap<Int, Pair<String, StatePush>>()
+
+    /**
+     * Null, with a log line, when [json] is too large to send even compressed. Runs on [CoreHost.ipcDispatcher]
+     * only. The feed gives the same String for an unchanged list, so each list version is compressed once.
+     */
+    private fun encode(kind: Int, json: String): StatePush? {
+        gzipped[kind]?.takeIf { it.first === json }?.let { return it.second }
+        val push = StatePush.of(json)
+        if (push == null) {
+            Log.e(TAG, "state push of kind $kind dropped: ${json.length / 1024} Ki chars of JSON")
+        } else if (push is StatePush.Gzip) {
+            gzipped[kind] = json to push
+        }
+        return push
     }
 
     /**

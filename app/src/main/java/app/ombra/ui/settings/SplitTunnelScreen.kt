@@ -7,9 +7,11 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -85,9 +87,14 @@ fun SplitTunnelScreen(core: CoreSource, editor: SettingsEditor, onBack: () -> Un
     RequestErrorMessage(vm.errorCode, vm::errorShown)
 
     SubScreen(title = stringResource(R.string.settings_split), onBack = onBack) { padding ->
+        // Edge-to-edge does not resize the window for the keyboard: keep the last rows above it.
+        val imeBottom = with(LocalDensity.current) { WindowInsets.ime.getBottom(this).toDp() }
         LazyColumn(
             Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(top = padding.calculateTopPadding(), bottom = padding.calculateBottomPadding() + Spacing.xl),
+            contentPadding = PaddingValues(
+                top = padding.calculateTopPadding(),
+                bottom = maxOf(padding.calculateBottomPadding(), imeBottom) + Spacing.xl,
+            ),
         ) {
             item(key = "modes") {
                 RowGroup(Modifier.selectableGroup()) {

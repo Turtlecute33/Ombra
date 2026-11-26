@@ -46,8 +46,8 @@ android {
         applicationId = "app.ombra"
         minSdk = 36
         targetSdk = 37
-        versionCode = 17
-        versionName = "0.2.15"
+        versionCode = 18
+        versionName = "0.2.16"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk {
             abiFilters += "arm64-v8a"

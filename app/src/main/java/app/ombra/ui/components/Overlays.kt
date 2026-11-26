@@ -4,6 +4,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -50,7 +52,7 @@ fun ConfirmDialog(
     )
 }
 
-/** A modal bottom sheet with a title; it opens fully, its content is short. */
+/** A modal bottom sheet with a title; it opens fully. Its content scrolls, for a large font or a short window. */
 @Composable
 fun Sheet(title: String, onDismiss: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
     ModalBottomSheet(
@@ -59,7 +61,9 @@ fun Sheet(title: String, onDismiss: () -> Unit, content: @Composable ColumnScope
         containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
     ) {
         // Rows bring their own 16 dp padding; with this 8 dp they line up with the title.
-        Column(Modifier.navigationBarsPadding().padding(start = Spacing.s, end = Spacing.s, bottom = Spacing.l)) {
+        Column(
+            Modifier.navigationBarsPadding().verticalScroll(rememberScrollState()).padding(start = Spacing.s, end = Spacing.s, bottom = Spacing.l),
+        ) {
             Text(
                 title,
                 style = MaterialTheme.typography.titleLarge,

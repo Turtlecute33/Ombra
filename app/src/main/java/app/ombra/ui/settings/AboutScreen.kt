@@ -8,8 +8,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -128,9 +126,7 @@ private fun LinkIcon() {
 private fun SpeedTips(onDismiss: () -> Unit) {
     Sheet(title = stringResource(R.string.tips_title), onDismiss = onDismiss) {
         Column(
-            Modifier
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = Spacing.l, vertical = Spacing.s),
+            Modifier.padding(horizontal = Spacing.l, vertical = Spacing.s),
             verticalArrangement = Arrangement.spacedBy(Spacing.m),
         ) {
             stringArrayResource(R.array.tips).forEach { tip ->

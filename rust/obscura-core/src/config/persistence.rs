@@ -674,10 +674,11 @@ impl WireGuardKeyCache {
         }
     }
     pub fn use_key_pair(&mut self, key_store: &WgKeyStore) -> (StaticSecret, WgPubkey) {
-        let (secret_key, public_key) = self.ensure_key_pair(key_store);
-        let now = SystemTime::now();
-        self.first_use.get_or_insert(now);
-        (secret_key, public_key)
+        self.ensure_key_pair(key_store)
+    }
+    /// The key carried a tunnel that connected (Ombra patch P36). Only now does its age start: a failed attempt is no use.
+    pub fn mark_used(&mut self) {
+        self.first_use.get_or_insert_with(SystemTime::now);
     }
     pub fn rotate_now(&mut self, reason: RotationReason, key_store: &WgKeyStore) {
         self.rotate_now_internal(reason, key_store);
@@ -763,6 +764,9 @@ mod tests {
         let store = WgKeyStore::None;
         let mut cache = WireGuardKeyCache::default();
         let (_, first) = cache.use_key_pair(&store);
+        cache.rotate_if_required(Duration::ZERO, &store);
+        assert_eq!(cache.use_key_pair(&store).1, first, "a failed attempt is no use");
+        cache.mark_used();
         cache.rotate_if_required(DAY, &store);
         assert_eq!(cache.use_key_pair(&store).1, first, "used less than a day ago");
 
@@ -774,6 +778,7 @@ mod tests {
 
         cache.rotate_if_required(Duration::ZERO, &store);
         let (_, second) = cache.use_key_pair(&store);
+        cache.mark_used();
         assert_ne!(second, first);
         assert_eq!(cache.old_public_keys, vec![first], "the unused key did not rotate");
         cache.rotate_if_required(Duration::ZERO, &store);

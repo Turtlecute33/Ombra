@@ -23,14 +23,12 @@
     <string name="status_loading">Starting</string>
     <string name="status_loading_detail">Waiting for the VPN service</string>
     <string name="status_off">Not protected</string>
-    <string name="status_off_detail">This network sees your IP address and your traffic</string>
     <string name="status_off_lockdown_detail">Android blocks all traffic until Ombra connects again</string>
     <string name="status_connecting">Connecting</string>
     <string name="status_connecting_detail">Racing the relays for the fastest path</string>
     <string name="status_reconnecting">Reconnecting</string>
     <string name="status_reconnecting_detail">Traffic waits until the tunnel is back</string>
     <string name="status_on">Protected</string>
-    <string name="status_on_detail">Your IP address and your traffic stay apart</string>
     <string name="status_disconnecting">Disconnecting</string>
     <string name="status_disconnecting_detail">Closing the tunnel</string>
     <string name="status_problem">Cannot connect</string>

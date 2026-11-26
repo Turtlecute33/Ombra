@@ -81,6 +81,19 @@ class StatePushTest {
     }
 
     @Test
+    fun sameCompressedPushIsDeliveredOnceUntilAPlainOneComes() {
+        val gz = StatePush.gzip(jsonOfLength(StatePush.MAX_PLAIN_CHARS * 2))
+        listener.onStateGz(StateKind.EXITS, gz)
+        listener.onStateGz(StateKind.EXITS, gz.copyOf())
+        assertEquals(1, received.size)
+
+        listener.onStateGz(StateKind.RELAYS, gz)
+        listener.onState(StateKind.EXITS, "{}")
+        listener.onStateGz(StateKind.EXITS, gz)
+        assertEquals(listOf(StateKind.EXITS, StateKind.RELAYS, StateKind.EXITS, StateKind.EXITS), received.map { it.first })
+    }
+
+    @Test
     fun badCompressedPushIsDropped() {
         val gzJson = StatePush.gzip(jsonOfLength(StatePush.MAX_PLAIN_CHARS * 2))
         listener.onStateGz(StateKind.EXITS, gzJson.copyOf(gzJson.size / 2))

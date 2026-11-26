@@ -237,7 +237,11 @@ impl LivenessChecker {
     }
 
     // Checks if a packet is an expected probe response and returns the probe latency if it is.
+    // Only an IPv4 packet with protocol 1 (ICMP) can be a pong: all other packets skip the clock and the parser.
     pub fn process_potential_probe_response(&mut self, packet: &[u8]) -> Option<Duration> {
+        if !(packet.len() >= 20 && packet[0] >> 4 == 4 && packet[9] == 1) {
+            return None;
+        }
         self.process_potential_probe_response_at(packet, WakeInstant::now())
     }
 
@@ -414,6 +418,24 @@ mod tests {
             .write(&mut reply, icmp.payload())
             .unwrap();
         reply
+    }
+
+    #[test]
+    fn tcp_and_ipv6_packets_are_no_probe_response() {
+        let mut checker = LivenessChecker::new(1280, None, CLIENT_IP, GATEWAY_IP);
+        let mut tcp = Vec::new();
+        PacketBuilder::ipv4(GATEWAY_IP.octets(), CLIENT_IP.octets(), 64)
+            .tcp(443, 50000, 1, 1000)
+            .write(&mut tcp, b"data")
+            .unwrap();
+        assert_eq!(checker.process_potential_probe_response(&tcp), None);
+        let mut ipv6 = Vec::new();
+        PacketBuilder::ipv6([1; 16], [2; 16], 64)
+            .udp(53, 50000)
+            .write(&mut ipv6, b"data")
+            .unwrap();
+        assert_eq!(checker.process_potential_probe_response(&ipv6), None);
+        assert_eq!(checker.process_potential_probe_response(&[]), None);
     }
 
     /// Sends user traffic for `seconds`, so one busy probe goes out per second, and answers the probes that `answer`

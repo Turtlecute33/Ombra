@@ -910,7 +910,6 @@ impl QuicWgConnHandshaking {
         let connection = timeout(QUIC_STEP_TIMEOUT, connecting)
             .await
             .map_err(|_| QuicWgConnectError::Timeout("quic connect"))?
-            .inspect_err(|error| RelayConnection::connect_failed(&quic_tuning, error))
             .map_err(io::Error::other)
             .map_err(QuicWgConnectError::TransportConnect)?;
         let connection = RelayConnection::new(connection, quic_tuning, quic_endpoint.clone());

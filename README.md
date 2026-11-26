@@ -43,7 +43,8 @@ Android 16 or newer (API 36), arm64.
 - A new WireGuard key every 30 days, every day or at each connect. The exit server can link your
   sessions only while it sees the same key.
 - No log files and almost nothing in logcat unless you turn on Diagnostics.
-- Screenshots blocked on the account screens; a copied account number is cleared after 60 s.
+- Screenshots blocked on the account screens; a copied account number is cleared after 60 s. The
+  screen lock guards the account number: show, copy, add time, log out and delete.
 - Referral: when you create an account, a switch (on by default) adds the Obscura referral code of
   the Ombra developer. After your first payment, you and the developer each get one free month.
   Obscura links the two accounts until one month after the free months. Turn the switch off, and

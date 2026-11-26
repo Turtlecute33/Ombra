@@ -496,6 +496,7 @@ impl ClientStateHandle {
         let conn = QuicWgConn::connect(handshaking, wg_sk.clone(), remote_pk, client_ip_v4, ping_keepalive_ip, tunnel_id).await?;
         tracing::info!(message_id = "A2FDGY4A", tunnel.id =% tunnel_id, "tunnel connected");
         self.remember_exit(exit_selector, &exit);
+        self.mark_wg_key_used();
         Ok(TunnelConnection { conn, exit, network_config, relay, tunnel_id })
     }
 
@@ -577,6 +578,7 @@ impl ClientStateHandle {
         let (conn, network_config) = udp_tunnel::connect(&client, &server, args.udp_mtu, wg_private_key, network_interface).await?;
         tracing::info!(message_id = "Yc3gFp6R", tunnel.id =% tunnel_id, "tunnel connected");
         self.remember_exit(&args.exit, &tunnel.exit);
+        self.mark_wg_key_used();
         Ok(TunnelConnection {
             conn: conn.with_close_guard(lease),
             exit: tunnel.exit,
@@ -598,6 +600,11 @@ impl ClientStateHandle {
 
     pub(crate) fn use_wg_key_pair(&self) -> (StaticSecret, WgPubkey) {
         self.change(|inner| inner.config.change(|config| config.wireguard_key_cache.use_key_pair(&inner.wg_key_store)))
+    }
+
+    /// After a tunnel connected (Ombra patch P36): only a key that carried a tunnel starts its age.
+    fn mark_wg_key_used(&self) {
+        self.change_config(|config| config.wireguard_key_cache.mark_used());
     }
 
     /// The tunnel was not created. The next connect attempt retries.
@@ -993,11 +1000,19 @@ impl ClientStateHandle {
         let response_time = SystemTime::now();
         let last_updated_sec = response_time.duration_since(UNIX_EPOCH).unwrap_or(Duration::ZERO).as_secs();
         let account = Some(AccountStatus { account_info: account_info.clone(), last_updated_sec });
+        let mut became_active = false;
         self.change_config(|config| {
             if config.account_id.as_ref() == Some(account_id) {
+                // Only a known account that was not active: a first status (login) must not leave a retry permit.
+                let was_inactive = config.cached_account_status.as_ref().is_some_and(|status| !status.account_info.active);
+                became_active = account_info.active && was_inactive;
                 config.cached_account_status = account;
             }
         });
+        if became_active {
+            // Ombra patch P36: the wait after an account error (expired, invalid) ends when the account works.
+            crate::tunnel_state::retry_connect_now();
+        }
     }
 
     // Only intended to be called after use (on disconnect). Rotation schedules are fairly arbitrary, so using the key one more time is fine. The benefit is that we don't trigger rotation if the user stops using the client, but the client is still auto-starting. This does not imply the effect of `Self::register_cached_wireguard_key_if_new`. It's the callers responsibility to ensure that registration is triggered asap.
@@ -1559,6 +1574,7 @@ mod tests {
         let dir = tempdir().unwrap();
         let client_state = client_state(dir.path());
         let (_, first) = client_state.use_wg_key_pair();
+        client_state.mark_wg_key_used();
         client_state.prepare_wg_key().await;
         assert_eq!(client_state.use_wg_key_pair().1, first, "the default max age is 30 days");
 

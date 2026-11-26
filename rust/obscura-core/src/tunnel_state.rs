@@ -1,4 +1,5 @@
 use futures::future::pending;
+use obscuravpn_api::cmd::ApiErrorKind;
 use obscuravpn_api::types::{OneExit, OneRelay};
 use std::convert::Infallible;
 use std::ops::ControlFlow;
@@ -202,6 +203,8 @@ impl TunnelState {
         let mut udp_handshake_failures = 0;
         // Other failed connects in a row (Ombra patch P9), and tunnels that broke soon after the connect (P19).
         let mut connect_failures = 0;
+        // The wait after the last connect failed with an account error (Ombra patch P36).
+        let mut account_error_wait: Option<Duration> = None;
         // Dummy TUNs in a row that the OS refused (Ombra patch P31).
         let mut capture_failures = 0;
         // When the last tunnel connected (P19).
@@ -344,11 +347,12 @@ impl TunnelState {
                             tun_set_for = Some(tun_target(&target_state));
                             // The wait after failed connects in a row (Ombra patch P9). A change of the target state
                             // ends it and starts over.
-                            let retry_delay = connect_retry_delay(connect_failures);
+                            let retry_delay = account_error_wait.unwrap_or_else(|| connect_retry_delay(connect_failures));
                             if !retry_delay.is_zero() {
                                 tracing::info!(
                                     message_id = "pW3kRf8e",
                                     failures = connect_failures,
+                                    account_error = account_error_wait.is_some(),
                                     delay_s = retry_delay.as_secs(),
                                     "waiting before the next connect"
                                 );
@@ -367,11 +371,13 @@ impl TunnelState {
                                         "target state or tunnel arguments changed while trying to connect"
                                     );
                                     connect_failures = 0;
+                                    account_error_wait = None;
                                     ControlFlow::Break(())
                                 }
                                 Some(Err(error)) => {
                                     tracing::error!(message_id = "OfLfwKhf", ?error, "failed to connect");
                                     let udp_handshake_failed = matches!(error, TunnelConnectError::UdpHandshakeFailed);
+                                    account_error_wait = account_error_delay(&error);
                                     tunnel_state.send_modify(|tunnel_state| tunnel_state.set_connect_error(error));
                                     if udp_handshake_failed {
                                         // Each attempt makes and deletes an API tunnel, so wait longer after each
@@ -388,7 +394,7 @@ impl TunnelState {
                                         if poll_until_change(&mut client_state_watch, &target_state, sleep(delay)).await.is_none() {
                                             udp_handshake_failures = 0;
                                         }
-                                    } else {
+                                    } else if account_error_wait.is_none() {
                                         connect_failures += 1;
                                     }
                                     ControlFlow::Break(())
@@ -401,6 +407,7 @@ impl TunnelState {
                                     );
                                     selection_state = ExitSelectionState::default();
                                     udp_handshake_failures = 0;
+                                    account_error_wait = None;
                                     connected_at = WakeInstant::now();
                                     ControlFlow::Continue(Connected {
                                         conn: Arc::new(connection.conn),
@@ -482,6 +489,7 @@ impl TunnelState {
                     selection_state = ExitSelectionState::default();
                     udp_handshake_failures = 0;
                     connect_failures = 0;
+                    account_error_wait = None;
                     tracing::info!(message_id = "axfILRQy", "reached disconnected target state");
                     // The data path stopped, and the last Speed mode tunnel deletes itself. Delete what earlier runs
                     // left (Ombra patch P5).
@@ -605,6 +613,20 @@ fn connect_retry_delay(failures: u32) -> Duration {
     Duration::from_secs((1u64 << doublings) - 1).min(Duration::from_secs(29))
 }
 
+/// The wait after a connect that the API refused for the account (Ombra patch P36).
+const ACCOUNT_ERROR_DELAY: Duration = Duration::from_secs(5 * 60);
+
+/// An expired account, an invalid account number or a client that the API no longer supports does not heal in
+/// seconds, and each attempt is a full relay race. These errors wait long, and do not count as failed connects. The
+/// wait ends at a change of the target state, a wake, or when the account turns active (`update_account_info`).
+fn account_error_delay(error: &TunnelConnectError) -> Option<Duration> {
+    let TunnelConnectError::ApiError(error) = error else { return None };
+    match error.api_error_kind()? {
+        ApiErrorKind::AccountExpired {} | ApiErrorKind::InvalidAccountId {} | ApiErrorKind::NoLongerSupported {} => Some(ACCOUNT_ERROR_DELAY),
+        _ => None,
+    }
+}
+
 /// A tunnel that lived this long worked. One that breaks sooner counts as a failed connect.
 const STABLE_TUNNEL_TIME: Duration = Duration::from_secs(15);
 
@@ -661,6 +683,32 @@ mod tests {
         state.set_connecting(&quic, &None, None);
         assert!(!has_error(&state));
         assert!(matches!(&state, TunnelState::Connecting { args, .. } if *args == quic));
+    }
+
+    #[test]
+    fn only_account_errors_wait_five_minutes() {
+        use crate::errors::ApiError;
+        use obscuravpn_api::ClientError;
+        use obscuravpn_api::cmd::ApiErrorBody;
+        use obscuravpn_api::reexports::reqwest::StatusCode;
+        let api = |error| {
+            let body = ApiErrorBody { error, msg: String::new(), detail: None };
+            TunnelConnectError::ApiError(ApiError::ApiClient(ClientError::ApiError(obscuravpn_api::cmd::ApiError {
+                status: StatusCode::FORBIDDEN,
+                body,
+            })))
+        };
+        for kind in [
+            ApiErrorKind::AccountExpired {},
+            ApiErrorKind::InvalidAccountId {},
+            ApiErrorKind::NoLongerSupported {},
+        ] {
+            assert_eq!(account_error_delay(&api(kind)), Some(Duration::from_secs(300)));
+        }
+        assert_eq!(account_error_delay(&api(ApiErrorKind::InternalError {})), None);
+        assert_eq!(account_error_delay(&api(ApiErrorKind::TunnelLimitExceeded {})), None);
+        assert_eq!(account_error_delay(&TunnelConnectError::ApiError(ApiError::NotLoggedIn)), None);
+        assert_eq!(account_error_delay(&TunnelConnectError::NoInternet), None);
     }
 
     #[test]

@@ -140,7 +140,7 @@ fun AccountScreen(core: CoreSource, onBack: () -> Unit) {
             confirmLabel = stringResource(R.string.settings_logout),
             onConfirm = {
                 confirmLogout = false
-                vm.logout()
+                vm.afterScreenLock(context, lockTitle, vm::logout)
             },
             onDismiss = { confirmLogout = false },
             destructive = true,
@@ -228,7 +228,10 @@ private fun StatusCard(account: AccountSummary, refreshing: Boolean, onRefresh: 
 private fun statusLines(account: AccountSummary): List<String> = buildList {
     when (account.state) {
         AccountState.Active, AccountState.ExpiresSoon -> {
-            account.timeLeft?.let { add(stringResource(R.string.account_time_left, timeLeftText(it), date(account.expiresAt))) }
+            // The text starts with a fragment such as "less than an hour left"; a line starts with a capital.
+            account.timeLeft?.let {
+                add(stringResource(R.string.account_time_left, timeLeftText(it), date(account.expiresAt)).replaceFirstChar { c -> c.titlecase() })
+            }
         }
         AccountState.Renews -> add(stringResource(R.string.account_renews, date(account.renewsAt)))
         AccountState.Inactive -> add(stringResource(R.string.account_inactive_detail))

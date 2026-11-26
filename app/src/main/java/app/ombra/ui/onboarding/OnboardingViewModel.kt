@@ -74,7 +74,7 @@ class OnboardingViewModel(private val core: CoreSource) : ViewModel() {
     fun open(step: OnboardingStep) {
         errorCode = null
         steps += step
-        if (step == OnboardingStep.Create && trial == null) checkTrial()
+        if (step == OnboardingStep.Create && (trial == null || trial == Trial.Unknown)) checkTrial()
     }
 
     fun back() {

@@ -8,9 +8,11 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -40,6 +42,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
@@ -174,7 +177,13 @@ private fun LocationList(state: LocationsUiState, query: String, bottomPadding: 
     // Another side or search starts at the top. Without this, the list keeps the first visible key
     // and can open far down, with Fastest and the pins out of view.
     LaunchedEffect(state.side, query.trim()) { listState.scrollToItem(0) }
-    LazyColumn(Modifier.fillMaxSize(), state = listState, contentPadding = PaddingValues(bottom = bottomPadding + Spacing.xl)) {
+    // Edge-to-edge does not resize the window for the keyboard: keep the last rows above it.
+    val imeBottom = with(LocalDensity.current) { WindowInsets.ime.getBottom(this).toDp() }
+    LazyColumn(
+        Modifier.fillMaxSize(),
+        state = listState,
+        contentPadding = PaddingValues(bottom = maxOf(bottomPadding, imeBottom) + Spacing.xl),
+    ) {
         items(state.rows, key = { it.key }, contentType = ::contentType) { row ->
             val animated = if (reducedMotion) Modifier else Modifier.animateItem()
             when (row) {

@@ -57,18 +57,28 @@ sealed interface StatePush {
 abstract class StateListener : IStateListener.Stub() {
     abstract fun onStateJson(kind: Int, json: String)
 
+    /**
+     * The last compressed push of each kind. A push with the same bytes is the same JSON, so a new
+     * bind that repeats the lists skips the decompression and the decoding. Binder threads may differ.
+     */
+    private val lastGz = HashMap<Int, ByteArray>()
+
     final override fun onState(kind: Int, json: String?) {
-        if (json != null) onStateJson(kind, json)
+        if (json == null) return
+        synchronized(lastGz) { lastGz.remove(kind) }
+        onStateJson(kind, json)
     }
 
     final override fun onStateGz(kind: Int, gzJson: ByteArray?) {
         if (gzJson == null) return
+        if (synchronized(lastGz) { lastGz[kind]?.contentEquals(gzJson) == true }) return
         val json = try {
             StatePush.gunzip(gzJson)
         } catch (e: IOException) {
             Log.e(TAG, "bad compressed state push of kind $kind")
             return
         }
+        synchronized(lastGz) { lastGz[kind] = gzJson }
         onStateJson(kind, json)
     }
 
