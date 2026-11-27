@@ -2,15 +2,19 @@ package app.ombra.vpn
 
 import app.ombra.core.AccountNumber
 import app.ombra.core.ffi.ErrorCodeException
+import app.ombra.core.model.AccountInfo
+import app.ombra.core.model.AccountStatus
 import app.ombra.core.model.ConnectErrorCode
 import app.ombra.core.model.CoreCall
 import app.ombra.core.model.ExitSelector
 import app.ombra.core.model.ManagerCmd
 import app.ombra.core.model.ManagerCmdErrorCode
+import app.ombra.core.model.Status
 import app.ombra.core.model.TunnelArgs
 import app.ombra.core.model.VpnStatus
 import app.ombra.ipc.IpcError
 import app.ombra.ipc.Settings
+import app.ombra.ui.connect.connected
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
@@ -452,6 +456,25 @@ class CoreControllerTest {
         core.setStatus(expired)
         runCurrent()
         assertEquals(3, core.count(ManagerCmd.ApiGetAccountInfo::class))
+    }
+
+    @Test
+    fun tunnelThatComesUpWithExpiredInfoRefreshesTheAccount() = runTest {
+        core.setStatus(accountId = number)
+        controller().start()
+        runCurrent()
+        assertEquals(1, core.count(ManagerCmd.ApiGetAccountInfo::class))
+
+        // The user paid on another device: Rust connects, but its account info is still the old one.
+        advanceTimeBy(CoreController.EXPIRED_REFRESH_GAP + 1.seconds)
+        core.status.value = Status("renewed", connected(), accountId = number, account = AccountStatus(AccountInfo(active = false)))
+        runCurrent()
+        assertEquals(2, core.count(ManagerCmd.ApiGetAccountInfo::class))
+
+        advanceTimeBy(CoreController.EXPIRED_REFRESH_GAP + 1.seconds)
+        core.status.value = Status("active", connected(), accountId = number, account = AccountStatus(AccountInfo(active = true)))
+        runCurrent()
+        assertEquals(2, core.count(ManagerCmd.ApiGetAccountInfo::class))
     }
 
     @Test

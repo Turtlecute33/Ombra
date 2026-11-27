@@ -156,8 +156,9 @@ object CoreHost {
 
     private fun startRust(dir: File) {
         val diagnostics = settingsStore.current.diagnostics
-        // Logs that an earlier process wrote before the user turned diagnostics off.
-        if (!diagnostics) deleteRustLogs(dir)
+        // Logs that an earlier process wrote before the user turned diagnostics off. Without such logs
+        // the bundle stays: it has no copy of them, and the user can still share it.
+        if (!diagnostics && File(dir, RUST_LOG_DIR).exists()) deleteRustLogs(dir)
         if (!initializeRust(dir, diagnostics)) return
         isReady = true
         initError = null

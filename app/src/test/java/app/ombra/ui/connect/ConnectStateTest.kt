@@ -119,6 +119,21 @@ class ConnectStateTest {
     }
 
     @Test
+    fun chosenExitThatLeftTheListGetsItsOwnFix() {
+        fun chosen(exit: ExitSelector) = state(VpnStatus.Disconnected, Settings(exit = exit))
+        listOf(ExitSelector.Any, ExitSelector.Country("se"), ExitSelector.City("se", "sto"), ExitSelector.Exit("se-sto-001")).forEach {
+            assertFalse(chosen(it).exitGone, "$it")
+        }
+        listOf(ExitSelector.Country("no"), ExitSelector.City("se", "got"), ExitSelector.Exit("se-sto-002")).forEach {
+            assertTrue(chosen(it).exitGone, "$it")
+            assertEquals(ErrorFix.UseFastestExit, fixFor(ConnectErrorCode.Other, chosen(it)))
+        }
+        // No list yet: nothing is known about the choice.
+        val noList = connectUiState(status(VpnStatus.Disconnected), Settings(exit = ExitSelector.Exit("se-sto-002")), emptyList(), emptyList(), null, null)
+        assertFalse(noList.exitGone)
+    }
+
+    @Test
     fun detailsLinkOnlyToAWebPageOfTheExitOperator() {
         val vpn = connected()
         val details = connectionDetails(vpn.copy(exit = vpn.exit.copy(providerUrl = "https://mullvad.net/servers")))

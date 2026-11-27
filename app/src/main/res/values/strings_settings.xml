@@ -144,7 +144,7 @@
     <string name="dns_blocking_not_mullvad">The exit in use is not run by Mullvad, so the block lists do not apply now.</string>
     <string name="dns_blocking_off">Block lists work only with Obscura DNS: custom servers or network DNS turn them off.</string>
     <string name="dns_custom">Custom DNS servers</string>
-    <string name="dns_custom_note">They replace Obscura DNS. Queries go through the tunnel, except to a server on your local network while Local network access is on. The server sees the names you look up.</string>
+    <string name="dns_custom_note">They replace Obscura DNS. All queries go through the tunnel, also to a local address, so a server on your local network (for example your router) cannot answer. The server sees the names you look up.</string>
     <string name="dns_add_label">IPv4 or IPv6 address</string>
     <string name="dns_add_placeholder">9.9.9.9</string>
     <string name="dns_add">Add</string>
@@ -219,7 +219,7 @@
     <!-- Debug bundle -->
     <string name="bundle_title">Debug bundle</string>
     <string name="bundle_intro">A debug bundle helps to find the cause of connection problems. Read what it does before you make one.</string>
-    <string name="bundle_fact_probes">It tests the network from this phone: it contacts apple.com, google.com, the Obscura API and the DNS servers of Cloudflare and Google (1.1.1.1, 8.8.8.8) outside the VPN, so they see your real IP address.</string>
+    <string name="bundle_fact_probes">It tests the network from this phone: outside the VPN, it looks up and contacts apple.com, google.com and the Obscura API, so they and the DNS server of your network see your real IP address.</string>
     <string name="bundle_fact_logs">It holds the logs of the VPN core, the Android log of Ombra (logcat) and the settings of the VPN core, with network details such as addresses and interfaces.</string>
     <string name="bundle_fact_private">It leaves out your account number and your private WireGuard key.</string>
     <string name="bundle_fact_share">The file stays on this phone. Ombra sends it nowhere: you choose where to share it.</string>

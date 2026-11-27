@@ -42,6 +42,7 @@ import androidx.compose.ui.platform.PlatformTextInputMethodRequest
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.contentType
+import androidx.compose.ui.semantics.isSensitiveData
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
@@ -110,6 +111,8 @@ fun AccountNumberField(
                         .semantics {
                             contentDescription = label
                             contentType = ContentType.Password
+                            // Only accessibility tools (TalkBack) can read the number.
+                            isSensitiveData = true
                         },
                 )
             }
@@ -170,7 +173,8 @@ private fun DigitGroup(digits: String, highlighted: Boolean, isError: Boolean, m
                 text = groupText(digits, colors.onSurface, colors.outline),
                 style = OmbraTextStyles.monoLarge,
                 maxLines = 1,
-                autoSize = TextAutoSize.StepBased(minFontSize = 11.sp, maxFontSize = 22.sp),
+                // The floor lets four digits fit a group at the largest system font size.
+                autoSize = TextAutoSize.StepBased(minFontSize = 8.sp, maxFontSize = 22.sp),
             )
         }
     }

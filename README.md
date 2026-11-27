@@ -70,10 +70,10 @@ Ombra connects only to these hosts:
   actions.
 - The entry relays from the Obscura relay list: the relay race and the tunnel. The exit gets your
   traffic only through the relay.
-- Only for a debug bundle, after you agree on its page: DNS lookups and HTTPS requests to
-  `www.apple.com` and `google.com`, HTTPS requests to the Obscura API (also with `apple.com` and
-  `google.com` as the TLS name), and pings to `1.1.1.1`, `8.8.8.8`, `2606:4700:4700::1111` and
-  `2001:4860:4860::8888`.
+- Only for a debug bundle, after you agree on its page: DNS lookups of `www.apple.com`,
+  `google.com` and the Obscura API host through the DNS server of your network, HTTPS requests to
+  `www.apple.com` and `google.com`, and HTTPS requests to the Obscura API (also with `apple.com` and
+  `google.com` as the TLS name).
 
 Links, for example the payment page, open in your browser.
 

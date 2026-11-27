@@ -438,9 +438,15 @@ Android side:
   the first Show, Copy, Add time, Log out or final Delete of a visit. One prompt per visit; the visit ends when
   the screen stops. No prompt when the phone has no screen lock (`KeyguardManager.isDeviceSecure`).
   Onboarding shows the number of a new account with no prompt, so that the user can save it at once.
+  The login field and the shown number have `isSensitiveData`: only an accessibility tool (TalkBack)
+  reads them. A logout also clears the undo history of the login field.
 - The debug bundle makes network probes and includes logcat: consent screen; delete old zips. The
   consent text names the probe targets, and the README lists each host that Ombra contacts
-  (OMBRA-PRIV-007).
+  (OMBRA-PRIV-007). On Android the probes are those of Rust `get_debug_info`: DNS lookups through the
+  resolver of the network, and HTTPS requests; no pings. A `:vpn` start with diagnostics off deletes
+  the bundle only together with old log files, because only then the bundle can hold a copy of them.
+- A custom DNS server always gets its queries through the tunnel (a host route when local network
+  access is on), so a resolver on the local network cannot answer. The note on the DNS page says so.
 - Permissions: `INTERNET`, `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_SYSTEM_EXEMPTED`,
   `POST_NOTIFICATIONS`, `ACCESS_NETWORK_STATE`, `HIDE_OVERLAY_WINDOWS`, `USE_BIOMETRIC` (the
   account screen prompt). Nothing else unless a task justifies it in its report.

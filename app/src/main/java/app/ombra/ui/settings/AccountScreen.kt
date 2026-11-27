@@ -29,6 +29,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.isSensitiveData
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -273,6 +274,8 @@ private fun NumberCard(number: String?, busy: Boolean, onReveal: () -> Unit, onH
                         style = OmbraTextStyles.monoLarge,
                         color = if (number == null) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
                         textAlign = TextAlign.Center,
+                        // Only accessibility tools (TalkBack) can read the number.
+                        modifier = Modifier.semantics { isSensitiveData = true },
                     )
                 }
             }

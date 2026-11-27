@@ -16,8 +16,13 @@ object AccountNumber {
 
     enum class Problem { TooShort, TooLong, BadChecksum }
 
-    /** Keeps only ASCII digits, so pasted text with spaces or dashes works. */
-    fun normalize(input: String): String = input.filter { it in '0'..'9' }
+    /**
+     * Keeps only the digits, as ASCII, so pasted text with spaces or dashes works. A keyboard can
+     * send the digits of its script (Persian, Arabic), which have the same values.
+     */
+    fun normalize(input: String): String = buildString(input.length) {
+        for (c in input) Character.digit(c, 10).let { if (it >= 0) append('0' + it) }
+    }
 
     /** Digits in groups of 4, for display and for input fields while typing. */
     fun format(input: String, separator: String = " "): String = normalize(input).chunked(GROUP).joinToString(separator)

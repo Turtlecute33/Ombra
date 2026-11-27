@@ -1,5 +1,6 @@
 package app.ombra.ui.settings
 
+import androidx.activity.compose.BackHandler
 import android.content.ClipData
 import android.content.Context
 import android.content.Intent
@@ -53,7 +54,10 @@ fun DebugBundleScreen(core: CoreSource, onBack: () -> Unit) {
     var feedback by rememberSaveable { mutableStateOf("") }
     val step = vm.step
 
-    SettingsPage(stringResource(R.string.bundle_title), onBack) {
+    // Back would drop this page's state while :vpn still makes the bundle: the zip would have no Share button.
+    val creating = step is BundleStep.Creating
+    BackHandler(enabled = creating) {}
+    SettingsPage(stringResource(R.string.bundle_title), onBack = { if (!creating) onBack() }) {
         Column(Modifier.padding(horizontal = Spacing.screen), verticalArrangement = Arrangement.spacedBy(Spacing.m)) {
             Text(stringResource(R.string.bundle_intro), style = MaterialTheme.typography.bodyLarge)
             BUNDLE_FACTS.forEach { (icon, text) -> Fact(icon, stringResource(text)) }

@@ -133,6 +133,7 @@ class OmbraVpnService : VpnService(), Callbacks.NetworkConfigHandler {
             alwaysOn = CoreHost.systemState.value.alwaysOn == true,
         )
         startForeground(VpnNotifications.STATUS_ID, VpnNotifications.status(this, view), ServiceInfo.FOREGROUND_SERVICE_TYPE_SYSTEM_EXEMPTED)
+        VpnNotifications.clearAlert(this)
         true
     } catch (e: RuntimeException) {
         // SecurityException without consent, ForegroundServiceStartNotAllowedException from the background.

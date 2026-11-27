@@ -43,6 +43,8 @@ data class ConnectUiState(
     val error: ConnectErrorCode? = null,
     /** The user chose an entry relay: `noRelay` then means that relay is down. */
     val relayChosen: Boolean = false,
+    /** The chosen exit is not in the exit list: Rust then finds no exit and reports `other`. */
+    val exitGone: Boolean = false,
     /** Account info says the account has no time left. */
     val accountInactive: Boolean = false,
     /** Only while connected. */
@@ -87,6 +89,7 @@ fun connectUiState(
         protocol = protocolOf(vpn, target),
         error = error,
         relayChosen = target.relay != RelaySelector.Any,
+        exitGone = exits.isNotEmpty() && exits.none(target.exit::matches),
         accountInactive = status?.account?.accountInfo?.active == false,
         details = (vpn as? VpnStatus.Connected)?.let(::connectionDetails),
     )
@@ -132,6 +135,13 @@ private fun protocolOf(vpn: VpnStatus?, target: TunnelArgs): Protocol {
             TunnelMode.WireguardUdp -> Protocol.Speed
         }
     }
+}
+
+private fun ExitSelector.matches(exit: OneExit): Boolean = when (this) {
+    ExitSelector.Any -> true
+    is ExitSelector.Country -> exit.countryCode == countryCode
+    is ExitSelector.City -> exit.countryCode == countryCode && exit.cityCode == cityCode
+    is ExitSelector.Exit -> exit.id == id
 }
 
 private fun exitHop(selector: ExitSelector, exits: List<OneExit>): Hop = when (selector) {

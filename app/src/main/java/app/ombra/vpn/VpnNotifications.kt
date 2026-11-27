@@ -76,6 +76,9 @@ object VpnNotifications {
     /** Shown when a start that asks for a tunnel finds no core. Tapping it connects again from the app. */
     fun showCannotStart(context: Context) = showAlert(context, R.string.notification_cannot_start)
 
+    /** The start works again, so an alert that asks for an action says nothing true. */
+    fun clearAlert(context: Context) = context.getSystemService(NotificationManager::class.java).cancel(ALERT_ID)
+
     private fun showAlert(context: Context, text: Int) {
         if (!canNotify(context)) return
         val notification = base(context, CHANNEL_ALERTS, R.string.app_name)

@@ -4,6 +4,7 @@ import android.os.SystemClock
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import app.ombra.core.model.ExitSelector
 import app.ombra.core.model.RelaySelector
 import app.ombra.core.model.TunnelMode
 import app.ombra.core.model.VpnStatus
@@ -80,6 +81,7 @@ class ConnectViewModel(
             ErrorFix.SwitchToStealth -> { s -> s.copy(mode = TunnelMode.Quic) }
             ErrorFix.UseTcpTls -> { s -> s.copy(mode = TunnelMode.TcpTls) }
             ErrorFix.UseFastestRelay -> { s -> s.copy(relay = RelaySelector.Any) }
+            ErrorFix.UseFastestExit -> { s -> s.copy(exit = ExitSelector.Any) }
             ErrorFix.OpenAccount -> return
         }
         viewModelScope.launch {

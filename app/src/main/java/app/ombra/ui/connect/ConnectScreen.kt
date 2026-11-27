@@ -232,7 +232,8 @@ private fun Messages(
     val error = state.error
     val showAccount = state.accountInactive && error == null && state.phase == ConnectPhase.Disconnected
     when {
-        startProblem != null -> Notice(
+        // A tile or an always-on start can connect later without the app: the old notice then says nothing true.
+        startProblem != null && state.phase == ConnectPhase.Disconnected -> Notice(
             text = stringResource(startProblemText(startProblem)),
             tone = NoticeTone.Error,
             actionLabel = stringResource(

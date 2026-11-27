@@ -76,6 +76,7 @@ enum class ErrorFix {
     SwitchToStealth,
     UseTcpTls,
     UseFastestRelay,
+    UseFastestExit,
     OpenAccount,
 }
 
@@ -86,6 +87,7 @@ fun fixFor(error: ConnectErrorCode, state: ConnectUiState): ErrorFix? = when (er
         state.protocol != Protocol.TcpTls -> ErrorFix.UseTcpTls
         else -> null
     }
+    ConnectErrorCode.Other -> if (state.exitGone) ErrorFix.UseFastestExit else null
     ConnectErrorCode.AccountExpired,
     ConnectErrorCode.InvalidAccountId,
     -> ErrorFix.OpenAccount

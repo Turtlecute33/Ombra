@@ -47,7 +47,8 @@ fun connectErrorText(error: ConnectErrorCode, state: ConnectUiState): Int = when
     ConnectErrorCode.NoSlotsLeft -> R.string.error_no_slots
     ConnectErrorCode.NotLoggedIn -> R.string.error_not_logged_in
     ConnectErrorCode.UdpHandshakeFailed -> R.string.error_udp_handshake
-    ConnectErrorCode.Other, ConnectErrorCode.Unknown -> R.string.error_other
+    ConnectErrorCode.Other -> if (state.exitGone) R.string.error_exit_gone else R.string.error_other
+    ConnectErrorCode.Unknown -> R.string.error_other
 }
 
 @StringRes
@@ -55,6 +56,7 @@ fun fixLabel(fix: ErrorFix): Int = when (fix) {
     ErrorFix.SwitchToStealth -> R.string.fix_switch_to_stealth
     ErrorFix.UseTcpTls -> R.string.fix_use_tcp_tls
     ErrorFix.UseFastestRelay -> R.string.fix_use_fastest_relay
+    ErrorFix.UseFastestExit -> R.string.fix_use_fastest_exit
     ErrorFix.OpenAccount -> R.string.fix_open_account
 }
 

@@ -44,10 +44,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.isSensitiveData
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
@@ -156,7 +158,7 @@ private fun MainButton(text: String, enabled: Boolean, busy: Boolean, onClick: (
         enabled = enabled && !busy,
         modifier = Modifier.fillMaxWidth().widthIn(max = Spacing.maxContentWidth).heightIn(min = 56.dp),
     ) {
-        if (busy) LoadingIndicator(Modifier.size(28.dp), color = MaterialTheme.colorScheme.onPrimary) else Text(text)
+        if (busy) LoadingIndicator(Modifier.size(28.dp)) else Text(text)
     }
 }
 
@@ -211,9 +213,15 @@ private fun Login(vm: OnboardingViewModel) {
     val check = AccountNumberInput.check(digits)
     val clipboard = LocalClipboard.current
     val scope = rememberCoroutineScope()
+    val keyboard = LocalSoftwareKeyboardController.current
+    // The keyboard goes with a request, so that an error under the field is on screen.
+    val login = {
+        if (check == AccountNumberInput.Check.Valid) keyboard?.hide()
+        vm.login()
+    }
     Page(
         onBack = vm::back,
-        bottom = { MainButton(stringResource(R.string.login_action), check == AccountNumberInput.Check.Valid, vm.busy, vm::login) },
+        bottom = { MainButton(stringResource(R.string.login_action), check == AccountNumberInput.Check.Valid, vm.busy, login) },
     ) {
         Title(stringResource(R.string.login_title))
         Body(stringResource(R.string.login_body))
@@ -222,7 +230,7 @@ private fun Login(vm: OnboardingViewModel) {
             state = vm.accountInput,
             label = stringResource(R.string.login_field),
             isError = check == AccountNumberInput.Check.Invalid,
-            onDone = vm::login,
+            onDone = login,
         )
         Row(Modifier.fillMaxWidth().padding(top = Spacing.s), verticalAlignment = Alignment.CenterVertically) {
             Text(
@@ -422,6 +430,8 @@ private fun NumberCard(number: String?, busy: Boolean, onReveal: () -> Unit) {
                     style = OmbraTextStyles.monoLarge,
                     color = if (number == null) MaterialTheme.colorScheme.onSurfaceVariant else Color.Unspecified,
                     textAlign = TextAlign.Center,
+                    // Only accessibility tools (TalkBack) can read the number.
+                    modifier = Modifier.semantics { isSensitiveData = true },
                 )
             }
             Spacer(Modifier.height(Spacing.m))

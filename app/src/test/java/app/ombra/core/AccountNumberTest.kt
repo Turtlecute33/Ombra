@@ -74,6 +74,14 @@ class AccountNumberTest {
     }
 
     @Test
+    fun digitsOfOtherScriptsBecomeAscii() {
+        // Persian, Arabic-Indic and full-width digits, as a keyboard of that script sends them.
+        assertEquals("5555012345", AccountNumber.normalize("۵۵۵۵ ٠١٢٣ ４５"))
+        assertNull(AccountNumber.problem("۵۵۵۵۰۱۲۳۴۵۶۷۸۰۵۵۴۳۳۷"))
+        assertEquals("", AccountNumber.normalize("abc ½ Ⅳ"))
+    }
+
+    @Test
     fun generatedNumbersAreAlwaysValid() {
         val random = SecureRandom()
         repeat(2_000) {

@@ -161,6 +161,8 @@ class OnboardingViewModel(private val core: CoreSource) : ViewModel() {
     private fun reset() {
         show(OnboardingStep.Welcome)
         accountInput.clearText()
+        // clearText() is an edit that undo (Ctrl+Z) can take back.
+        accountInput.undoState.clearHistory()
         newNumber = null
         errorCode = null
         trial = null

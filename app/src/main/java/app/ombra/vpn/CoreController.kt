@@ -256,7 +256,10 @@ class CoreController(
     private fun onStatus(status: Status) {
         statusState.value = status
         val vpn = status.vpnStatus
-        if (vpn is VpnStatus.Connecting && vpn.connectError == ConnectErrorCode.AccountExpired && accountInfoIsOld()) {
+        val expired = vpn is VpnStatus.Connecting && vpn.connectError == ConnectErrorCode.AccountExpired
+        // Rust reads the account only on request: a connect that works after a payment made elsewhere leaves the old info.
+        val renewed = vpn is VpnStatus.Connected && status.account?.accountInfo?.active == false
+        if ((expired || renewed) && accountInfoIsOld()) {
             // UNDISPATCHED: refreshAccount() stamps lastAccountRefresh before the next status arrives.
             scope.launch(start = CoroutineStart.UNDISPATCHED) { quietly("account refresh") { refreshAccount() } }
         }
@@ -291,7 +294,7 @@ class CoreController(
         const val REFERRAL_CODE = "e22kby"
         val ACCOUNT_REFRESH_INTERVAL = 12.hours
 
-        /** Rust retries a connect about every second; an expired account refreshes at most this often. */
+        /** An expired account, or a tunnel that is up with expired account info, refreshes at most this often. */
         val EXPIRED_REFRESH_GAP = 1.minutes
         private val POLL_RETRY_DELAY = 2.seconds
 

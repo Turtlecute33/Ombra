@@ -133,10 +133,11 @@ fun ConnectControl(
     val pressed by interaction.collectIsPressedAsState()
     val pressScale by animateFloatAsState(if (pressed) 0.94f else 1f, MaterialTheme.motionScheme.fastSpatialSpec())
 
-    // Confirms when the tunnel comes up while the control is on screen, not when it opens protected.
+    // Confirms when the tunnel comes up while the control is on screen, not when it opens protected
+    // (a new screen shows Unavailable until the first status).
     var shownLook by remember { mutableStateOf(look) }
     LaunchedEffect(look) {
-        if (look == ControlLook.Protected && shownLook != ControlLook.Protected) {
+        if (look == ControlLook.Protected && shownLook != ControlLook.Protected && shownLook != ControlLook.Unavailable) {
             haptics.performHapticFeedback(HapticFeedbackType.Confirm)
         }
         shownLook = look
