@@ -13,12 +13,14 @@ import app.ombra.core.ffi.RustFfi
 import app.ombra.core.model.BundleInfo
 import app.ombra.core.model.Status
 import app.ombra.ipc.SystemState
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -76,10 +78,16 @@ object CoreHost {
     private lateinit var wgKeyVault: WgKeyVault
     private lateinit var configKeyVault: ConfigKeyVault
     private lateinit var wanted: VpnWanted
-    private var initialized = false
+    private var shellInitialized = false
+    private val rustInitLock = Any()
 
-    /** The last Rust init stopped at the config key, before Rust started, so a later [init] may try again. */
+    /** Completes after the first Rust init attempt, also a failed one: IPC calls of a cold start wait for it. */
+    private val firstRustInit = CompletableDeferred<Boolean>()
+
+    /** The last Rust init stopped at the config key, before Rust started, so a later [ensureRustReady] may try again. */
     private var keystoreFailed = false
+
+    private val readyState = MutableStateFlow(false)
 
     private val systemStateFlow = MutableStateFlow(SystemState())
 
@@ -94,9 +102,10 @@ object CoreHost {
         private set
 
     /** True once Rust is initialized. False while [initError] is set; only a Keystore failure gets a new try. */
-    @Volatile
-    var isReady: Boolean = false
-        private set
+    val isReady: Boolean get() = readyState.value
+
+    /** [isReady] as a flow: Rust starts after the first frame of the Quick Settings tile, which then draws again. */
+    val ready: StateFlow<Boolean> = readyState.asStateFlow()
 
     /** Class name of the init failure (for example UnsatisfiedLinkError when the .so is missing). */
     @Volatile
@@ -116,14 +125,15 @@ object CoreHost {
 
     val vpnWantedFlow: StateFlow<Boolean> get() = wanted.flow
 
-    /** Idempotent. Call on the main thread from any :vpn component's onCreate. */
+    /**
+     * Makes the Kotlin part (SettingsStore, CoreController, StateFeed). No Keystore call and no
+     * load of libobscuravpn_client.so, so that onCreate() is fast and startForeground() comes in time
+     * at a cold boot. Idempotent.
+     */
     @Synchronized
-    fun init(context: Context) {
-        if (initialized) {
-            if (ServicePolicy.retryInit(isReady, RustFfi.isInitialized, keystoreFailed)) startRust(appContext.noBackupFilesDir)
-            return
-        }
-        initialized = true
+    fun initShell(context: Context) {
+        if (shellInitialized) return
+        shellInitialized = true
         appContext = context.applicationContext
         val dir = appContext.noBackupFilesDir
         wgKeyVault = WgKeyVault(dir)
@@ -151,7 +161,29 @@ object CoreHost {
         scope.launch { statusView.collect { QuickTileService.requestUpdate(appContext) } }
         refreshSystemState()
         Callbacks.setHostHandler(hostHandler)
-        startRust(dir)
+    }
+
+    /** [initShell] on this thread, then the Keystore and Rust start on [Dispatchers.IO]. */
+    fun initAsync(context: Context) {
+        initShell(context)
+        scope.launch(Dispatchers.IO) { ensureRustReady() }
+    }
+
+    /** [ensureRustReady] on [Dispatchers.IO]. */
+    suspend fun ensureRustReadySuspend(): Boolean =
+        if (isReady) true else withContext(Dispatchers.IO) { ensureRustReady() }
+
+    /** Waits for the first Rust init attempt. True when Rust is ready. */
+    suspend fun awaitInitialRustInit(): Boolean = if (isReady) true else firstRustInit.await()
+
+    /** Loads the keys and starts Rust; blocks, so never on the main thread. Tries again only after a Keystore failure. */
+    fun ensureRustReady(): Boolean = synchronized(rustInitLock) {
+        if (isReady) return true
+        val firstAttempt = !firstRustInit.isCompleted
+        if (!firstAttempt && !ServicePolicy.retryInit(isReady, RustFfi.isInitialized, keystoreFailed)) return false
+        startRust(appContext.noBackupFilesDir)
+        if (firstAttempt) firstRustInit.complete(isReady)
+        isReady
     }
 
     private fun startRust(dir: File) {
@@ -160,8 +192,8 @@ object CoreHost {
         // the bundle stays: it has no copy of them, and the user can still share it.
         if (!diagnostics && File(dir, RUST_LOG_DIR).exists()) deleteRustLogs(dir)
         if (!initializeRust(dir, diagnostics)) return
-        isReady = true
         initError = null
+        readyState.value = true
         Log.i(TAG, "Rust core initialized")
         controller.start()
         scope.launch {

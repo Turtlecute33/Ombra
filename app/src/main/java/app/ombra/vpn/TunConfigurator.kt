@@ -17,7 +17,7 @@ import app.ombra.ipc.Settings
 class TunConfigurator(
     private val service: VpnService,
     private val settings: () -> Settings,
-    private val underlyingNetwork: () -> Network?,
+    private val underlyingNetworks: () -> Array<Network>?,
 ) {
     private val packageManager = service.packageManager
 
@@ -51,8 +51,8 @@ class TunConfigurator(
         plan.routes.forEach { builder.addRoute(it.address, it.prefix) }
         plan.dnsServers.forEach { builder.addDnsServer(it) }
         // No allowFamily(): Android then blocks a family that has no address or route in the TUN.
-        // Without a network the system default applies, which is right while it is unknown.
-        underlyingNetwork()?.let { builder.setUnderlyingNetworks(arrayOf(it)) }
+        // An empty array after onLost keeps a TUN without a network offline; null uses the system default.
+        underlyingNetworks()?.let { builder.setUnderlyingNetworks(it) }
         when (val apps = plan.apps) {
             is AppScope.AllExcept -> apps.packages.forEach { builder.addDisallowedApplication(it) }
             is AppScope.Only -> apps.packages.forEach { allow(builder, it) }

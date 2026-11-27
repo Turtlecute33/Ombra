@@ -26,6 +26,12 @@ impl BytesArena {
     pub fn take(&mut self, len: usize) -> Bytes {
         self.chunk.split_to(len).freeze()
     }
+
+    /// The space that the current chunk still has. A `space` call up to this length does not allocate.
+    #[cfg_attr(not(any(target_os = "android", target_os = "linux")), allow(dead_code))]
+    pub fn remaining(&self) -> usize {
+        self.chunk.len()
+    }
 }
 
 #[cfg(test)]
@@ -54,5 +60,17 @@ mod tests {
         assert_eq!(arena.space(CHUNK_SIZE + 1).len(), CHUNK_SIZE + 1);
         assert_eq!(arena.take(CHUNK_SIZE + 1).len(), CHUNK_SIZE + 1);
         assert_eq!(arena.space(10).len(), CHUNK_SIZE);
+    }
+
+    #[test]
+    fn remaining_is_the_space_that_needs_no_new_chunk() {
+        let mut arena = BytesArena::default();
+        assert_eq!(arena.remaining(), 0);
+        arena.space(2048);
+        assert_eq!(arena.remaining(), CHUNK_SIZE);
+        arena.take(2048);
+        assert_eq!(arena.remaining(), CHUNK_SIZE - 2048);
+        let before = arena.space(arena.remaining()).as_ptr();
+        assert_eq!(arena.space(10).as_ptr(), before, "the same chunk");
     }
 }

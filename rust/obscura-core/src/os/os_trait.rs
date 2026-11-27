@@ -17,6 +17,14 @@ pub trait Os: Sync + Send + 'static {
     /// Will be called when a packet from the relay is received on the tunnel, which should be emitted on the tunnel device.
     fn packet_for_os(&self, packet: Bytes);
 
+    /// [`Self::packet_for_os`] for a batch of packets, and leaves `packets` empty. An implementation can lock one time
+    /// for each batch.
+    fn packets_for_os(&self, packets: &mut Vec<Bytes>) {
+        for packet in packets.drain(..) {
+            self.packet_for_os(packet);
+        }
+    }
+
     /// Forget the network config in place, so the next `set_os_network_config` applies its config even when it is the
     /// same. Routing stays as it is until then. Only implementations that skip unchanged configs need it.
     fn forget_os_network_config(&self) {}
@@ -68,6 +76,16 @@ impl<O: Os> Os for RevocableOs<O> {
         let Ok(os_impl_guard) = self.inner.try_read() else { return };
         let Some(os_impl) = os_impl_guard.as_deref() else { return };
         os_impl.packet_for_os(packet);
+    }
+
+    fn packets_for_os(&self, packets: &mut Vec<Bytes>) {
+        if let Ok(os_impl_guard) = self.inner.try_read()
+            && let Some(os_impl) = os_impl_guard.as_deref()
+        {
+            os_impl.packets_for_os(packets);
+        } else {
+            packets.clear();
+        }
     }
 
     fn forget_os_network_config(&self) {

@@ -194,8 +194,12 @@ pub fn save(config_dir: &Path, config: &Config) -> Result<(), ConfigSaveError> {
 
 /// [`save`], encrypted with `key` when there is one (Ombra patch P13).
 pub fn save_with_key(config_dir: &Path, config: &Config, key: Option<&ConfigKey>) -> Result<(), ConfigSaveError> {
-    let config = config.clone();
-    let json = match serde_json::to_vec_pretty(&config) {
+    // Compact JSON when the file is encrypted: nobody reads it, and it is smaller and faster to write.
+    let serialized = match key {
+        Some(_) => serde_json::to_vec(config),
+        None => serde_json::to_vec_pretty(config),
+    };
+    let json = match serialized {
         Ok(json) => json,
         Err(error) => {
             tracing::error!(
@@ -723,9 +727,27 @@ impl WireGuardKeyCache {
         *self = Self { key_pair: Some(key_pair), first_use: None, registered_at: None, old_public_keys };
         (static_secret, public_key)
     }
+    /// True when the key pair has its secret key and the API has its public key.
+    pub fn is_registered(&self) -> bool {
+        let has_secret = matches!(
+            &self.key_pair,
+            Some(
+                WireGuardKeyCacheKeyPair::Plaintext { .. }
+                    | WireGuardKeyCacheKeyPair::Sealed { secret_key: Some(_), .. }
+                    | WireGuardKeyCacheKeyPair::Detached { secret_key: Some(_), .. }
+            )
+        );
+        has_secret && self.registered_at.is_some()
+    }
+
+    /// True when the key was first used `max_age` ago or earlier (see `rotate_if_required`).
+    pub fn needs_rotation(&self, max_age: Duration) -> bool {
+        self.first_use.is_some_and(|t| t.elapsed().is_ok_and(|age| age >= max_age))
+    }
+
     /// Rotates a key that was first used `max_age` ago or earlier. A key that was never used stays.
     pub fn rotate_if_required(&mut self, max_age: Duration, key_store: &WgKeyStore) {
-        if self.first_use.is_some_and(|t| t.elapsed().is_ok_and(|age| age >= max_age)) {
+        if self.needs_rotation(max_age) {
             self.rotate_now(RotationReason::ScheduleBased, key_store);
         } else {
             tracing::info!(message_id = "i85mYSwz", "no wireguard key pair rotation required");

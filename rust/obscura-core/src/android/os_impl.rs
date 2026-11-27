@@ -42,23 +42,24 @@ impl Os for AndroidOsImpl {
     async fn set_os_network_config(&self, network_config: OsNetworkConfig, tunnel: QuicWgConnPacketSender) -> Result<(), ()> {
         // Each connect attempt sets the dummy config first, and a failing connect tries again every second. Every
         // `establish()` in Java makes a new interface that replaces the VPN network, so keep the live TUN when the
-        // config did not change and give it only the new packet sender.
-        let reused_fd = match &*self.tun.lock().unwrap() {
-            Some(LiveTun { config: Some(current), tun }) if *current == network_config => tun.try_clone_fd(),
-            _ => None,
-        };
-        let fd = match reused_fd {
-            Some(fd) => {
+        // config did not change. Only its packet sender changes: a second reader and writer on the same device could
+        // change the order of the packets.
+        {
+            let tun_guard = self.tun.lock().unwrap();
+            if let Some(LiveTun { config: Some(current), tun }) = &*tun_guard
+                && *current == network_config
+                && tun.is_alive()
+            {
+                tun.set_tunnel(tunnel);
                 tracing::info!(message_id = "Hq4tVn8e", "network config unchanged, keeping the TUN device");
-                fd
+                return Ok(());
             }
-            None => {
-                let json = serde_json::to_string(&network_config).map_err(|error| {
-                    tracing::error!(message_id = "dK2xNm3q", ?error, "failed to serialize OsNetworkConfig: {error}");
-                })?;
-                super::ffi::call_set_network_config(self.class_cache.clone(), self.jvm.clone(), json).await?
-            }
-        };
+        }
+
+        let json = serde_json::to_string(&network_config).map_err(|error| {
+            tracing::error!(message_id = "dK2xNm3q", ?error, "failed to serialize OsNetworkConfig: {error}");
+        })?;
+        let fd = super::ffi::call_set_network_config(self.class_cache.clone(), self.jvm.clone(), json).await?;
 
         let (tun, result) = match Tun::spawn(fd, network_config.mtu, tunnel) {
             Ok(tun) => {
@@ -83,6 +84,14 @@ impl Os for AndroidOsImpl {
     fn packet_for_os(&self, packet: Bytes) {
         if let Some(LiveTun { tun, .. }) = &*self.tun.lock().unwrap() {
             tun.write(packet);
+        }
+    }
+
+    fn packets_for_os(&self, packets: &mut Vec<Bytes>) {
+        if let Some(LiveTun { tun, .. }) = &*self.tun.lock().unwrap() {
+            tun.write_batch(packets);
+        } else {
+            packets.clear();
         }
     }
 

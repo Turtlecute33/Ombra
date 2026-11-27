@@ -48,6 +48,11 @@ impl DnsCache {
     pub fn expire_all(&mut self) {
         self.resolved_at.clear();
     }
+
+    /// False after `expire_all`: a second expiry changes nothing.
+    pub fn has_fresh_entries(&self) -> bool {
+        !self.resolved_at.is_empty()
+    }
 }
 
 impl Default for DnsCache {

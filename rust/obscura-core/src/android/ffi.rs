@@ -343,13 +343,15 @@ pub extern "C" fn Java_app_ombra_core_ffi_Native_unsetNetworkInterface(_env: JNI
 
 /// cbindgen:ignore
 /// Call when the device wakes (screen on, Doze exit). It sends a liveness probe at once, and the tunnel counts
-/// as dead after 2 lost probes instead of 5, so a tunnel that died in sleep reconnects sooner. No-op when there
-/// is no connection.
+/// as dead after 2 lost probes instead of 5, so a tunnel that died in sleep reconnects sooner. No probe when packets
+/// came from the exit in the last 3 s. No-op when there is no connection.
 #[unsafe(no_mangle)]
 pub extern "C" fn Java_app_ombra_core_ffi_Native_wake(_env: JNIEnv, _: JClass, handle: JObject) {
     let global = global_from_handle(&handle);
-    let _runtime_guard = global.runtime.enter();
-    global.manager.wake();
+    // On the tokio worker: the Java main thread does not wait for the `wg_state` lock or for a send.
+    global.runtime.spawn(async move {
+        global.manager.wake();
+    });
 }
 
 /// cbindgen:ignore

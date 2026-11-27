@@ -1,9 +1,7 @@
 use boringtun::noise::{Tunn, TunnResult};
 use boringtun::x25519::{PublicKey, StaticSecret};
 use bytes::Bytes;
-use futures::Stream;
-use futures::StreamExt;
-use futures::stream::unfold;
+use futures::{FutureExt, Stream, StreamExt, stream::unfold};
 use obscuravpn_api::relay_protocol::{MessageCode, MessageContext, MessageHeader, PROTOCOL_IDENTIFIER, RelayOpCode, RelayResponseCode};
 use obscuravpn_api::wg_fragment::WgFragmentHeaderData;
 use obscuravpn_api::wg_fragment::merge::{ReassembleResult, WgFragmentBuffer};
@@ -23,16 +21,17 @@ use std::iter::once;
 use std::mem;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::num::{NonZeroU32, Saturating};
+#[cfg(any(target_os = "android", target_os = "linux"))]
+use std::os::fd::AsRawFd;
 use std::pin::Pin;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU16, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 use strum::Display;
 use thiserror::Error;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadHalf, WriteHalf};
 use tokio::net::{TcpStream, UdpSocket};
 use tokio::sync::watch;
-use tokio::time::{Duration, Instant, sleep};
-use tokio::time::{sleep_until, timeout};
+use tokio::time::{Duration, Instant, sleep, sleep_until, timeout};
 use tokio::{io, select, spawn};
 use tokio_rustls::TlsConnector;
 use tokio_rustls::client::TlsStream;
@@ -71,10 +70,15 @@ const QUIC_STEP_TIMEOUT: Duration = Duration::from_secs(30);
 
 const CONTROL_STREAM_WINDOW: u32 = 4 * 1024;
 
-/// How fast to call `update_timers`.
+/// How fast to call `update_timers` while traffic is active.
 ///
 /// In the boringtun repo they call it at 4Hz, however we have traditionally called it at 1Hz and doesn't seem to have any problems.
 const WG_TIMER_TICK: Duration = Duration::from_secs(1);
+/// The most datagrams that one receive batch reads and decrypts.
+const RX_BATCH_SIZE: usize = 64;
+/// The most datagrams that one `recvmmsg` call reads: 32 * 2048 bytes fill one `BytesArena` chunk of 64 KiB.
+#[cfg(any(target_os = "android", target_os = "linux"))]
+const UDP_RECVMMSG_BATCH: usize = 32;
 pub const TUNNEL_MTU: u16 = 1280;
 
 /// Max UDP payload size used by default if network MTU allows for it
@@ -187,10 +191,39 @@ pub enum QuicWgWireguardHandshakeError {
     RespMessageTimeout,
 }
 
+/// The traffic counters without a lock: `traffic_stats` does not wait for `wg_state` while packets flow.
+struct AtomicTrafficStats {
+    connected_at: Instant,
+    tx_bytes: AtomicU64,
+    rx_bytes: AtomicU64,
+    latest_latency_ms: AtomicU16,
+}
+
+impl AtomicTrafficStats {
+    fn new(connected_at: Instant) -> Self {
+        Self {
+            connected_at,
+            tx_bytes: AtomicU64::new(0),
+            rx_bytes: AtomicU64::new(0),
+            latest_latency_ms: AtomicU16::new(0),
+        }
+    }
+
+    fn snapshot(&self) -> QuicWgTrafficStats {
+        QuicWgTrafficStats {
+            connected_at: self.connected_at,
+            tx_bytes: self.tx_bytes.load(Ordering::Relaxed),
+            rx_bytes: self.rx_bytes.load(Ordering::Relaxed),
+            latest_latency_ms: self.latest_latency_ms.load(Ordering::Relaxed),
+        }
+    }
+}
+
 pub struct QuicWgConn {
     wg_state: Mutex<WgState>,
     wg_sender: WgSender,
     wg_receiver: WgReceiver,
+    traffic_stats: AtomicTrafficStats,
     client_public_key: PublicKey,
     exit_public_key: PublicKey,
     _tcp_tls_sender_abort: Option<AbortOnDrop>,
@@ -214,7 +247,6 @@ struct WgState {
     next_wg_timers_tick: Instant,
     next_liveness_poll: WakeInstant,
     tick_stats: TickStats,
-    traffic_stats: QuicWgTrafficStats,
     wg: Tunn,
     liveness_checker: LivenessChecker,
     fragmenter: WgMessageFragmenter,
@@ -392,7 +424,6 @@ impl QuicWgConn {
         let now = Instant::now();
         let wg_state = Mutex::new(WgState {
             wg,
-            traffic_stats: QuicWgTrafficStats { connected_at: now, tx_bytes: 0, rx_bytes: 0, latest_latency_ms: 0 },
             buffer: vec![0u8; usize::from(u16::MAX)],
             tx_arena: BytesArena::default(),
             rx_arena: BytesArena::default(),
@@ -409,6 +440,7 @@ impl QuicWgConn {
             wg_receiver,
             wg_sender,
             wg_state,
+            traffic_stats: AtomicTrafficStats::new(now),
             client_public_key,
             exit_public_key,
             _tcp_tls_sender_abort: tcp_tls_sender_abort,
@@ -552,46 +584,50 @@ impl QuicWgConn {
     fn send<'a>(&self, packets: impl Iterator<Item = &'a [u8]>) {
         let max_wg_message_size = self.wg_sender.max_wg_message_size();
         let mut wg_messages = WgMessages::new();
+        let mut batch_tx_bytes = 0u64;
         {
             let mut wg_state = self.wg_state.lock().unwrap();
             if let Some(probe) = wg_state.liveness_checker.sent_traffic() {
                 wg_state.encapsulate(&probe, max_wg_message_size, &mut wg_messages);
             }
             for packet in packets {
-                wg_state.traffic_stats.tx_bytes += usize_into_u64(packet.len());
+                batch_tx_bytes += usize_into_u64(packet.len());
                 wg_state.tick_stats.ip_tx_count += 1;
                 wg_state.tick_stats.min_ip_tx_size = Some(wg_state.tick_stats.min_ip_tx_size.unwrap_or(usize::MAX).min(packet.len()));
                 wg_state.tick_stats.max_ip_tx_size = Some(wg_state.tick_stats.max_ip_tx_size.unwrap_or(0).max(packet.len()));
                 wg_state.encapsulate(packet, max_wg_message_size, &mut wg_messages);
             }
         }
-        self.wg_sender.send_wg_messages(wg_messages);
+        self.traffic_stats.tx_bytes.fetch_add(batch_tx_bytes, Ordering::Relaxed);
+        self.wg_sender.send_wg_messages(wg_messages, max_wg_message_size);
     }
 
     pub fn wake(&self) {
         self.send_wake_probe(false)
     }
 
-    /// Sends a liveness probe at once. Until a probe is answered, the tunnel counts as dead after 2 lost probes, as after
-    /// a sleep. With `rebind` the liveness check also follows the new socket; in Speed mode a WireGuard keepalive goes
-    /// first.
+    /// Sends a liveness probe at once; for a wake, only when no packet came from the exit in the last 3 s. Until a probe
+    /// is answered, the tunnel counts as dead after 2 lost probes, as after a sleep. With `rebind` the liveness check
+    /// also follows the new socket; in Speed mode a WireGuard keepalive goes first.
     fn send_wake_probe(&self, rebind: bool) {
         let max_wg_message_size = self.wg_sender.max_wg_message_size();
         let speed_mode = self.transport() == TransportKind::WireguardUdp;
         let mut wg_messages = WgMessages::new();
         {
             let mut wg_state = self.wg_state.lock().unwrap();
-            if rebind && speed_mode {
-                wg_state.encapsulate(&[], max_wg_message_size, &mut wg_messages);
-            }
             // quinn reads the old socket until a packet comes on the new one; Speed mode closes it.
             let probe = match rebind {
-                true => wg_state.liveness_checker.rebind(!speed_mode),
-                false => wg_state.liveness_checker.wake(),
+                true => Some(wg_state.liveness_checker.rebind(!speed_mode)),
+                false => wg_state.liveness_checker.maybe_wake(),
             };
-            wg_state.encapsulate(&probe, max_wg_message_size, &mut wg_messages);
+            if let Some(probe) = probe {
+                if rebind && speed_mode {
+                    wg_state.encapsulate(&[], max_wg_message_size, &mut wg_messages);
+                }
+                wg_state.encapsulate(&probe, max_wg_message_size, &mut wg_messages);
+            }
         }
-        self.wg_sender.send_wg_messages(wg_messages);
+        self.wg_sender.send_wg_messages(wg_messages, max_wg_message_size);
     }
 
     /// Moves the tunnel to a new socket on `network_interface` after a network change (Ombra patch P4, D1 and D2). The
@@ -623,6 +659,154 @@ impl QuicWgConn {
         }
     }
 
+    /// Gives the decrypted IP packets to `on_packets` in batches until the tunnel fails. `wg_state` is locked one time
+    /// for each batch, and the two timers stay pinned between the batches.
+    pub async fn forward_to(&self, mut on_packets: impl FnMut(&mut Vec<Bytes>)) -> QuicWgReceiveError {
+        let (first_wg_tick, first_liveness_poll) = {
+            let wg_state = self.wg_state.lock().unwrap();
+            (wg_state.next_wg_timers_tick, wg_state.next_liveness_poll)
+        };
+        let wg_timer = sleep_until(first_wg_tick);
+        let liveness_timer = sleep(first_liveness_poll.remaining());
+        tokio::pin!(wg_timer, liveness_timer);
+        let mut raw_batch = Vec::with_capacity(RX_BATCH_SIZE);
+        let mut out_batch = Vec::with_capacity(RX_BATCH_SIZE);
+        loop {
+            // The WireGuard timers come first, as in `receive_packet_or_pong`: a socket that always has data must not
+            // stop a rekey.
+            let poll_liveness = select! {
+                biased;
+                _ = &mut wg_timer => {
+                    wg_timer.as_mut().reset(self.run_wg_timers_tick());
+                    false
+                }
+                result = self.wg_receiver.receive_wg_messages(&mut raw_batch) => {
+                    if let Err(error) = result {
+                        return QuicWgReceiveError::QuicReceiveError(error);
+                    }
+                    let got_pong = self.decapsulate_batch(&mut raw_batch, &mut out_batch);
+                    if !out_batch.is_empty() {
+                        on_packets(&mut out_batch);
+                        out_batch.clear();
+                    }
+                    // A pong can end the last open probe: the next poll can come later.
+                    got_pong
+                }
+                _ = &mut liveness_timer => true,
+            };
+            if poll_liveness {
+                match self.poll_liveness() {
+                    Ok(next_poll) => liveness_timer.as_mut().reset(Instant::now() + next_poll.remaining()),
+                    Err(error) => return error,
+                }
+            }
+        }
+    }
+
+    /// Runs boringtun's timers and logs the data path stats. Returns the time of the next tick. The tick stays at 1 Hz:
+    /// boringtun stamps each packet with the time of the last tick, so a longer period gives wrong timer decisions.
+    fn run_wg_timers_tick(&self) -> Instant {
+        let (tick_stats, next_tick) = {
+            let wg_state = &mut *self.wg_state.lock().unwrap();
+            loop {
+                let timer_result = wg_state.wg.update_timers(&mut wg_state.buffer);
+                match Self::handle_result(&self.wg_sender, timer_result) {
+                    WgOutput::MessageSent => continue,
+                    WgOutput::Packet(_) => tracing::warn!(message_id = "nmuKdNnr", "unexpected packet during update_timers"),
+                    WgOutput::Done => break,
+                }
+            }
+            wg_state.next_wg_timers_tick = Instant::now() + WG_TIMER_TICK;
+            (mem::take(&mut wg_state.tick_stats), wg_state.next_wg_timers_tick)
+        };
+        self.log_datapath_stats(tick_stats);
+        next_tick
+    }
+
+    /// Polls the liveness checker and sends its probes. Returns the time of the next poll.
+    fn poll_liveness(&self) -> Result<WakeInstant, QuicWgReceiveError> {
+        let max_wg_message_size = self.wg_sender.max_wg_message_size();
+        let mut wg_messages = WgMessages::new();
+        let poll = {
+            let wg_state = &mut *self.wg_state.lock().unwrap();
+            let poll = loop {
+                match wg_state.liveness_checker.poll() {
+                    crate::liveness::LivenessCheckerPoll::Dead => break Err(QuicWgReceiveError::TunnelDead),
+                    crate::liveness::LivenessCheckerPoll::LargeProbesLost => break Err(QuicWgReceiveError::LargePacketsLost),
+                    crate::liveness::LivenessCheckerPoll::AliveUntil(pending_until) => break Ok(pending_until),
+                    crate::liveness::LivenessCheckerPoll::SendPacket(probe) => wg_state.encapsulate(&probe, max_wg_message_size, &mut wg_messages),
+                }
+            };
+            if let Ok(pending_until) = poll {
+                wg_state.next_liveness_poll = pending_until;
+            }
+            poll
+        };
+        self.wg_sender.send_wg_messages(wg_messages, max_wg_message_size);
+        poll
+    }
+
+    /// Decrypts all WireGuard messages of `raw_batch` with one `wg_state` lock, and puts the IP packets in `out_batch`.
+    /// Returns true when a liveness pong was in the batch.
+    fn decapsulate_batch(&self, raw_batch: &mut Vec<Bytes>, out_batch: &mut Vec<Bytes>) -> bool {
+        let mut batch_rx_bytes = 0u64;
+        let mut got_pong = false;
+        let mut latest_latency = None;
+        {
+            let mut wg_state = self.wg_state.lock().unwrap();
+            let WgState { buffer, rx_arena, wg, tick_stats, liveness_checker, fragment_buffer, .. } = &mut *wg_state;
+            for wg_message in raw_batch.drain(..) {
+                let wg_message = match reassemble(fragment_buffer.as_mut(), wg_message) {
+                    ReassembleResult::NotFragmented(msg) => msg,
+                    ReassembleResult::Reassembled(msg) => {
+                        tick_stats.wg_rx_fragment_reassembled_count += 1;
+                        msg
+                    }
+                    ReassembleResult::UnmatchedFragment { max_message_size } => {
+                        tick_stats.wg_rx_fragment_buffered_count += 1;
+                        tick_stats.wg_rx_fragment_max_message_size = Some(max_message_size);
+                        continue;
+                    }
+                };
+                tick_stats.wg_rx_count += 1;
+                if let Some(header) = WgControlMessageHeader::parse(&wg_message) {
+                    header.log(WgMessageDirection::Received);
+                }
+                let res = wg.decapsulate(None, &wg_message, rx_arena.space(wg_message.len().max(WG_ENCAPSULATE_MIN_SPACE)));
+                if let TunnResult::WriteToNetwork(..) = &res {
+                    tick_stats.wg_tx_count += 1;
+                }
+                match Self::handle_result(&self.wg_sender, res) {
+                    WgOutput::Packet(len) => {
+                        let packet = rx_arena.take(len);
+                        tick_stats.ip_rx_count += 1;
+                        tick_stats.min_ip_rx_size = Some(tick_stats.min_ip_rx_size.unwrap_or(usize::MAX).min(packet.len()));
+                        tick_stats.max_ip_rx_size = Some(tick_stats.max_ip_rx_size.unwrap_or(0).max(packet.len()));
+                        batch_rx_bytes += usize_into_u64(packet.len());
+                        if let Some(latency) = liveness_checker.process_potential_probe_response(&packet) {
+                            latest_latency = Some(u16::try_from(latency.as_millis()).unwrap_or(u16::MAX));
+                            got_pong = true;
+                        } else {
+                            out_batch.push(packet);
+                        }
+                    }
+                    WgOutput::MessageSent => Self::send_queued_packets(wg, buffer, &self.wg_sender, tick_stats),
+                    WgOutput::Done => {}
+                }
+            }
+            if batch_rx_bytes > 0 {
+                liveness_checker.received_traffic();
+            }
+        }
+        if batch_rx_bytes > 0 {
+            self.traffic_stats.rx_bytes.fetch_add(batch_rx_bytes, Ordering::Relaxed);
+        }
+        if let Some(ms) = latest_latency {
+            self.traffic_stats.latest_latency_ms.store(ms, Ordering::Relaxed);
+        }
+        got_pong
+    }
+
     pub async fn receive(&self) -> Result<Bytes, QuicWgReceiveError> {
         loop {
             match self.receive_packet_or_pong().await? {
@@ -645,87 +829,23 @@ impl QuicWgConn {
             select! {
                 biased;
                 _ = sleep_until(next_wg_timers_tick) => {
-                    let tick_stats = {
-                        let wg_state = &mut *self.wg_state.lock().unwrap();
-                        loop {
-                            let timer_result = wg_state.wg.update_timers(&mut wg_state.buffer);
-                            match Self::handle_result(&self.wg_sender, timer_result) {
-                                WgOutput::MessageSent => continue,
-                                WgOutput::Packet(_) => tracing::warn!(message_id = "nmuKdNnr", "unexpected packet during update_timers"),
-                                WgOutput::Done => break,
-                            }
-                        }
-                        wg_state.next_wg_timers_tick = Instant::now() + WG_TIMER_TICK;
-                        mem::take(&mut wg_state.tick_stats)
-                    };
-                    self.log_datapath_stats(tick_stats);
+                    self.run_wg_timers_tick();
                 }
                 result = self.wg_receiver.receive_wg_message() => {
                     let wg_message = result.map_err(QuicWgReceiveError::QuicReceiveError)?;
-                    let mut wg_state = self.wg_state.lock().unwrap();
-                    let WgState {buffer, rx_arena, wg, traffic_stats, tick_stats, liveness_checker, fragment_buffer, .. } = &mut *wg_state;
-                    let wg_message = match reassemble(fragment_buffer.as_mut(), wg_message) {
-                        ReassembleResult::NotFragmented(msg) => msg,
-                        ReassembleResult::Reassembled(msg) => {
-                            tick_stats.wg_rx_fragment_reassembled_count += 1;
-                            msg
-                        }
-                        ReassembleResult::UnmatchedFragment { max_message_size } => {
-                            tick_stats.wg_rx_fragment_buffered_count += 1;
-                            tick_stats.wg_rx_fragment_max_message_size = Some(max_message_size);
-                            continue;
-                        }
-                    };
-                    tick_stats.wg_rx_count += 1;
-                    if let Some(header) = WgControlMessageHeader::parse(&wg_message) {
-                        header.log(WgMessageDirection::Received);
+                    let mut raw = Vec::with_capacity(1);
+                    raw.push(wg_message);
+                    let mut out = Vec::with_capacity(1);
+                    let got_pong = self.decapsulate_batch(&mut raw, &mut out);
+                    if let Some(packet) = out.pop() {
+                        return Ok(Received::Packet(packet));
                     }
-                    // A packet for the TUN is decrypted into the arena, so it reaches the TUN without a copy (C3). The space
-                    // also fits the answer to a handshake message.
-                    let res = wg.decapsulate(None, &wg_message, rx_arena.space(wg_message.len().max(WG_ENCAPSULATE_MIN_SPACE)));
-                    if let TunnResult::WriteToNetwork(..) = &res {
-                        tick_stats.wg_tx_count += 1;
-                    }
-                    match Self::handle_result(&self.wg_sender, res) {
-                        WgOutput::Packet(len) => {
-                            let packet = rx_arena.take(len);
-                            liveness_checker.received_traffic();
-                            tick_stats.ip_rx_count += 1;
-                            tick_stats.min_ip_rx_size = Some(tick_stats.min_ip_rx_size.unwrap_or(usize::MAX).min(packet.len()));
-                            tick_stats.max_ip_rx_size = Some(tick_stats.max_ip_rx_size.unwrap_or(0).max(packet.len()));
-                            traffic_stats.rx_bytes += usize_into_u64(packet.len());
-                            if let Some(latest_latency) = liveness_checker.process_potential_probe_response(&packet) {
-                                traffic_stats.latest_latency_ms = u16::try_from(latest_latency.as_millis()).unwrap_or(u16::MAX);
-                                return Ok(Received::Pong)
-                            }
-                            return Ok(Received::Packet(packet))
-                        }
-                        WgOutput::MessageSent => Self::send_queued_packets(wg, buffer, &self.wg_sender, tick_stats),
-                        WgOutput::Done => {}
+                    if got_pong {
+                        return Ok(Received::Pong);
                     }
                 }
                 _ = sleep(next_liveness_poll.remaining()) => {
-                    let max_wg_message_size = self.wg_sender.max_wg_message_size();
-                    let mut wg_messages = WgMessages::new();
-                    let poll = {
-                        let wg_state = &mut *self.wg_state.lock().unwrap();
-                        let poll = loop {
-                            match wg_state.liveness_checker.poll() {
-                                crate::liveness::LivenessCheckerPoll::Dead => break Err(QuicWgReceiveError::TunnelDead),
-                                crate::liveness::LivenessCheckerPoll::LargeProbesLost => break Err(QuicWgReceiveError::LargePacketsLost),
-                                crate::liveness::LivenessCheckerPoll::AliveUntil(pending_until) => break Ok(pending_until),
-                                crate::liveness::LivenessCheckerPoll::SendPacket(probe) => {
-                                    wg_state.encapsulate(&probe, max_wg_message_size, &mut wg_messages)
-                                }
-                            }
-                        };
-                        if let Ok(pending_until) = poll {
-                            wg_state.next_liveness_poll = pending_until;
-                        }
-                        poll
-                    };
-                    self.wg_sender.send_wg_messages(wg_messages);
-                    poll?;
+                    self.poll_liveness()?;
                 }
             }
         }
@@ -774,7 +894,7 @@ impl QuicWgConn {
     }
 
     pub fn traffic_stats(&self) -> QuicWgTrafficStats {
-        self.wg_state.lock().unwrap().traffic_stats
+        self.traffic_stats.snapshot()
     }
 
     pub fn exit_public_key(&self) -> PublicKey {
@@ -819,10 +939,17 @@ impl RelayUdpSocket {
 
     /// The next datagram from the relay, from the current socket. The arena is never locked across an await.
     async fn receive(&self, arena: &Mutex<BytesArena>) -> io::Result<Bytes> {
+        let mut batch = Vec::with_capacity(1);
+        self.receive_batch(arena, &mut batch, 1).await?;
+        Ok(batch.pop().expect("receive_batch returns at least one datagram"))
+    }
+
+    /// Reads 1 to `max_batch` datagrams from the current socket into `out`. Waits for the first one.
+    async fn receive_batch(&self, arena: &Mutex<BytesArena>, out: &mut Vec<Bytes>, max_batch: usize) -> io::Result<()> {
         loop {
             let socket = self.current();
-            if let Some(datagram) = try_receive_udp(&socket, arena)? {
-                return Ok(datagram);
+            if try_receive_udp_batch(&socket, arena, out, max_batch)? > 0 {
+                return Ok(());
             }
             // A rebind ends the wait: the old socket gets nothing more.
             let mut rebinds = self.socket.subscribe();
@@ -1242,12 +1369,12 @@ impl WgSender {
     }
 
     fn send_wg_message(&self, wg_message: Bytes) {
-        self.send_wg_messages(once(wg_message));
+        self.send_wg_messages(once(wg_message), None);
     }
 
-    fn send_wg_messages(&self, wg_messages: impl IntoIterator<Item = Bytes>) {
+    fn send_wg_messages(&self, wg_messages: impl IntoIterator<Item = Bytes>, max_wg_message_size: Option<u16>) {
         match self {
-            WgSender::Quic { coalescer, .. } => coalescer.send(wg_messages),
+            WgSender::Quic { coalescer, .. } => coalescer.send(wg_messages, max_wg_message_size),
             WgSender::TcpTls { traffic_state } => {
                 traffic_state.send_modify(|traffic_state| {
                     for wg_message in wg_messages {
@@ -1261,11 +1388,7 @@ impl WgSender {
             // sees a loss. An ICMP error of an earlier datagram also drops one message.
             WgSender::Udp { relay, dropped } => {
                 let socket = relay.current();
-                for wg_message in wg_messages {
-                    if socket.try_send(&wg_message).is_err() {
-                        dropped.fetch_add(1, Ordering::Relaxed);
-                    }
-                }
+                send_udp_batch(&socket, wg_messages, dropped);
             }
         }
     }
@@ -1336,6 +1459,28 @@ impl WgReceiver {
             };
         }
     }
+    /// Reads 1 to `RX_BATCH_SIZE` WireGuard messages into `out`. Waits for the first one; the others are the messages
+    /// that are already there.
+    async fn receive_wg_messages(&self, out: &mut Vec<Bytes>) -> io::Result<()> {
+        match self {
+            WgReceiver::Quic(conn) => {
+                let first = conn.read_datagram().await.map_err(io::Error::other)?;
+                out.push(first);
+                while out.len() < RX_BATCH_SIZE {
+                    match conn.read_datagram().now_or_never() {
+                        Some(Ok(datagram)) => out.push(datagram),
+                        Some(Err(_)) | None => break,
+                    }
+                }
+                Ok(())
+            }
+            WgReceiver::TcpTls { .. } => {
+                out.push(self.receive_wg_message().await?);
+                Ok(())
+            }
+            WgReceiver::Udp { relay, arena } => relay.receive_batch(arena, out, RX_BATCH_SIZE).await,
+        }
+    }
 }
 
 /// Without a fragment buffer every message is whole: a message in the fragment format then fails to decrypt.
@@ -1351,13 +1496,115 @@ fn reassemble(fragment_buffer: Option<&mut WgFragmentBuffer>, wg_message: Bytes)
     }
 }
 
-/// A datagram that the socket already has, or `None`.
-fn try_receive_udp(socket: &UdpSocket, arena: &Mutex<BytesArena>) -> io::Result<Option<Bytes>> {
+/// Sends the messages with `sendmmsg`: one syscall for each batch. The send goes to the fd and not through tokio's
+/// `try_send`. tokio clears its write readiness after a full send buffer and sets it again only when its I/O driver
+/// runs, and until then each `try_send` fails without a syscall.
+#[cfg(any(target_os = "android", target_os = "linux"))]
+fn send_udp_batch(socket: &UdpSocket, wg_messages: impl IntoIterator<Item = Bytes>, dropped: &AtomicU64) {
+    let batch: SmallVec<[Bytes; 64]> = wg_messages.into_iter().collect();
+    let mut iovs: SmallVec<[libc::iovec; 64]> = batch
+        .iter()
+        .map(|message| libc::iovec { iov_base: message.as_ptr().cast_mut().cast(), iov_len: message.len() })
+        .collect();
+    let mut headers: SmallVec<[libc::mmsghdr; 64]> = iovs
+        .iter_mut()
+        .map(|iov| {
+            // SAFETY: an all-zero `mmsghdr` is valid: no address, no control data.
+            let mut header: libc::mmsghdr = unsafe { mem::zeroed() };
+            header.msg_hdr.msg_iov = std::ptr::from_mut(iov);
+            header.msg_hdr.msg_iovlen = 1;
+            header
+        })
+        .collect();
+    let fd = socket.as_raw_fd();
+    let mut offset = 0;
+    while offset < headers.len() {
+        let remaining = headers.len() - offset;
+        let count = libc::c_uint::try_from(remaining).unwrap_or(libc::c_uint::MAX);
+        // SAFETY: `fd` is an open, connected socket. Each header points to one iovec of `iovs`, and each iovec to one
+        // message of `batch`. All three stay alive and do not move until the call returns.
+        let sent = unsafe { libc::sendmmsg(fd, headers[offset..].as_mut_ptr(), count, libc::MSG_DONTWAIT) };
+        match usize::try_from(sent) {
+            Ok(sent) if sent > 0 => offset += sent,
+            _ => {
+                let error = io::Error::last_os_error();
+                if is_udp_path_error(&error) {
+                    // The error of an earlier datagram: this message is dropped, the next ones can go.
+                    dropped.fetch_add(1, Ordering::Relaxed);
+                    offset += 1;
+                } else {
+                    dropped.fetch_add(usize_into_u64(remaining), Ordering::Relaxed);
+                    return;
+                }
+            }
+        }
+    }
+}
+
+#[cfg(not(any(target_os = "android", target_os = "linux")))]
+fn send_udp_batch(socket: &UdpSocket, wg_messages: impl IntoIterator<Item = Bytes>, dropped: &AtomicU64) {
+    for wg_message in wg_messages {
+        if socket.try_send(&wg_message).is_err() {
+            dropped.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+}
+
+/// Reads up to `max_batch` datagrams that the socket already has into `out`, with `recvmmsg`. Returns how many.
+#[cfg(any(target_os = "android", target_os = "linux"))]
+fn try_receive_udp_batch(socket: &UdpSocket, arena: &Mutex<BytesArena>, out: &mut Vec<Bytes>, max_batch: usize) -> io::Result<usize> {
+    let fd = socket.as_raw_fd();
+    let mut total = 0;
     let mut arena = arena.lock().unwrap();
-    loop {
-        match socket.try_recv(arena.space(UDP_RECEIVE_SPACE)) {
-            Ok(len) => return Ok(Some(arena.take(len))),
-            Err(error) if error.kind() == io::ErrorKind::WouldBlock => return Ok(None),
+    while total < max_batch {
+        // Only the slots that the chunk still has. A larger request makes a new 64 KiB chunk at each call, also for a
+        // call that gets one datagram.
+        let slots = match arena.remaining() / UDP_RECEIVE_SPACE {
+            0 => UDP_RECVMMSG_BATCH,
+            slots => slots,
+        };
+        let want = (max_batch - total).min(UDP_RECVMMSG_BATCH).min(slots);
+        let result = if want == 1 {
+            socket.try_recv(arena.space(UDP_RECEIVE_SPACE)).map(|len| {
+                out.push(arena.take(len));
+                1
+            })
+        } else {
+            let buffer = arena.space(want * UDP_RECEIVE_SPACE).as_mut_ptr();
+            let mut iovs = [libc::iovec { iov_base: std::ptr::null_mut(), iov_len: 0 }; UDP_RECVMMSG_BATCH];
+            // SAFETY: an all-zero `mmsghdr` is valid: no address, no control data.
+            let mut headers = [unsafe { mem::zeroed::<libc::mmsghdr>() }; UDP_RECVMMSG_BATCH];
+            for (i, (iov, header)) in iovs.iter_mut().zip(&mut headers).take(want).enumerate() {
+                // SAFETY: the space has `want * UDP_RECEIVE_SPACE` bytes, so slot `i` is in it.
+                *iov = libc::iovec { iov_base: unsafe { buffer.add(i * UDP_RECEIVE_SPACE) }.cast(), iov_len: UDP_RECEIVE_SPACE };
+                header.msg_hdr.msg_iov = std::ptr::from_mut(iov);
+                header.msg_hdr.msg_iovlen = 1;
+            }
+            let count = libc::c_uint::try_from(want).unwrap_or(libc::c_uint::MAX);
+            // In `try_io`, so that tokio clears its read readiness when the socket has nothing more.
+            socket
+                .try_io(tokio::io::Interest::READABLE, || {
+                    // SAFETY: `fd` is open. The first `want` headers point to their iovecs, and those to the space, which
+                    // does not change until `take` below.
+                    let received = unsafe { libc::recvmmsg(fd, headers.as_mut_ptr(), count, libc::MSG_DONTWAIT, std::ptr::null_mut()) };
+                    usize::try_from(received).map_err(|_| io::Error::last_os_error())
+                })
+                .inspect(|&received| {
+                    for header in &headers[..received] {
+                        let mut datagram = arena.take(UDP_RECEIVE_SPACE);
+                        datagram.truncate(usize::try_from(header.msg_len).unwrap_or(0));
+                        out.push(datagram);
+                    }
+                })
+        };
+        match result {
+            Ok(received) => {
+                total += received;
+                if received < want {
+                    break;
+                }
+            }
+            Err(error) if error.kind() == io::ErrorKind::WouldBlock => break,
             Err(error) if is_udp_path_error(&error) => {
                 rate_limited_log!(
                     Duration::from_secs(5),
@@ -1367,6 +1614,31 @@ fn try_receive_udp(socket: &UdpSocket, arena: &Mutex<BytesArena>) -> io::Result<
             Err(error) => return Err(error),
         }
     }
+    Ok(total)
+}
+
+/// Reads up to `max_batch` datagrams that the socket already has into `out`. Returns how many.
+#[cfg(not(any(target_os = "android", target_os = "linux")))]
+fn try_receive_udp_batch(socket: &UdpSocket, arena: &Mutex<BytesArena>, out: &mut Vec<Bytes>, max_batch: usize) -> io::Result<usize> {
+    let mut total = 0usize;
+    let mut arena = arena.lock().unwrap();
+    while total < max_batch {
+        match socket.try_recv(arena.space(UDP_RECEIVE_SPACE)) {
+            Ok(len) => {
+                out.push(arena.take(len));
+                total += 1;
+            }
+            Err(error) if error.kind() == io::ErrorKind::WouldBlock => break,
+            Err(error) if is_udp_path_error(&error) => {
+                rate_limited_log!(
+                    Duration::from_secs(5),
+                    tracing::info!(message_id = "Vr8cKw2N", ?error, "ignoring an ICMP error from the path to the relay")
+                );
+            }
+            Err(error) => return Err(error),
+        }
+    }
+    Ok(total)
 }
 
 #[derive(Default)]
@@ -1466,16 +1738,15 @@ pub(crate) async fn recv_message<T: AsyncRead + Unpin>(transport: &mut T) -> Res
             recv_skip(transport, len).await?;
             continue;
         }
-        let mut payload = vec![0u8; len];
-        transport.read_exact(&mut payload).await?;
-        let (code, arg) = payload.split_at_checked(4).unwrap();
-        let code = code.try_into().unwrap_or([u8::MAX; 4]);
+        let code = recv_fixed::<4, _>(transport).await?;
+        let mut arg = vec![0u8; len - 4];
+        transport.read_exact(&mut arg).await?;
         let Some(code) = MessageCode::from_bytes(code, header.context_id, true) else {
             // Forward compatibility with future relay protocol changes
             tracing::warn!(message_id = "OK8fVfBL", "ignoring relay message with unknown op code");
             continue;
         };
-        return Ok((code, header.context_id, arg.to_vec()));
+        return Ok((code, header.context_id, arg));
     }
 }
 

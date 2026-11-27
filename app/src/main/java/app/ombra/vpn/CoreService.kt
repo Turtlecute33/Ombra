@@ -29,7 +29,7 @@ class CoreService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        CoreHost.init(applicationContext)
+        CoreHost.initAsync(applicationContext)
         CoreHost.feed.changes().forEach { (kind, values) ->
             pushScope.launch { values.collect { broadcast(kind, it) } }
         }

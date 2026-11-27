@@ -218,6 +218,15 @@ impl ClientStateHandle {
         });
     }
 
+    /// [`Self::change_config`], but the config is on the disk when this returns (`ConfigHandle::change_sync`).
+    pub(crate) fn change_config_sync(&self, f: impl FnOnce(&mut Config)) {
+        self.change(|inner| {
+            inner.config.change_sync(|config| {
+                f(config);
+            })
+        });
+    }
+
     fn change<T>(&self, f: impl FnOnce(&mut ClientState) -> T) -> T {
         let mut ret: Option<T> = None;
         self.0.send_modify(|inner| {
@@ -245,7 +254,7 @@ impl ClientStateHandle {
         }
         let mut kept_tunnel = false;
         self.change(|inner| {
-            inner.config.change(|config| {
+            inner.config.change_sync(|config| {
                 if account_id != config.account_id {
                     // Log-out / Change User. Ombra (patch P3) keeps no list of earlier account ids, so the default
                     // empty `old_account_ids` also clears the ids that an older version stored.
@@ -416,7 +425,9 @@ impl ClientStateHandle {
                     tracing::info!(message_id = "iew0Ahk9", "Clearing cached API client: network interface changed.");
                     inner.cached_api_client = None;
                     // The API addresses of one network's resolver are not fresh on the next (Ombra patch P3).
-                    inner.config.change(|config| config.dns_cache.expire_all());
+                    if inner.config.dns_cache.has_fresh_entries() {
+                        inner.config.change(|config| config.dns_cache.expire_all());
+                    }
                 }
             }
         })
@@ -501,18 +512,19 @@ impl ClientStateHandle {
     }
 
     /// Speed mode (Ombra patch P5): plain WireGuard over UDP on a `CreateTunnel::UdpPort` API tunnel. The relay race
-    /// measures the RTT over QUIC as in the other modes, then its handshake is abandoned. A failed handshake does not
-    /// fall back to QUIC.
+    /// measures the RTT over QUIC as in the other modes, then its handshake is abandoned; with one matching relay there
+    /// is no race. A failed handshake does not fall back to QUIC.
     async fn connect_wireguard_udp(
         &self,
         args: &TunnelArgs,
         network_interface: Option<&NetworkInterface>,
         selection_state: &mut ExitSelectionState,
     ) -> Result<TunnelConnection, TunnelConnectError> {
-        let (closest_relay, handshaking, exit) = self
-            .select_relay_and_exit(&args.exit, &args.relay, &RelayTransport::WireguardUdp, network_interface, selection_state)
-            .await?;
-        tokio::spawn(handshaking.abandon());
+        let select_relay = self.select_speed_relay(&args.relay, network_interface);
+        let (closest_relay, handshaking, exit) = self.select_relay_and_exit(&args.exit, selection_state, select_relay).await?;
+        if let Some(handshaking) = handshaking {
+            tokio::spawn(handshaking.abandon());
+        }
         self.wait_for_udp_tunnel_deletes().await;
 
         // The create call and the delete of the lease use the same client, also when the account changes meanwhile.
@@ -636,9 +648,8 @@ impl ClientStateHandle {
         network_interface: Option<&NetworkInterface>,
         selection_state: &mut ExitSelectionState,
     ) -> anyhow::Result<(Uuid, ObfuscatedTunnelConfig, StaticSecret, OneExit, OneRelay, QuicWgConnHandshaking), TunnelConnectError> {
-        let (closest_relay, handshaking, exit) = self
-            .select_relay_and_exit(exit_selector, relay_selector, relay_transport, network_interface, selection_state)
-            .await?;
+        let select_relay = self.select_relay(relay_selector, relay_transport, network_interface);
+        let (closest_relay, handshaking, exit) = self.select_relay_and_exit(exit_selector, selection_state, select_relay).await?;
         // Deleted Speed mode tunnels free their slots first (Ombra patch P5).
         self.wait_for_udp_tunnel_deletes().await;
 
@@ -678,15 +689,14 @@ impl ClientStateHandle {
         Ok((tunnel_id, config, wg_private_key, tunnel.exit, tunnel.relay, handshaking))
     }
 
-    /// The relay with the lowest RTT, its handshake, and the id of the exit for it.
-    async fn select_relay_and_exit(
+    /// The relay of `select_relay`, its handshake, and the id of the exit for it. The exit list updates while
+    /// `select_relay` runs.
+    async fn select_relay_and_exit<H>(
         &self,
         exit_selector: &ExitSelector,
-        relay_selector: &RelaySelector,
-        relay_transport: &RelayTransport,
-        network_interface: Option<&NetworkInterface>,
         selection_state: &mut ExitSelectionState,
-    ) -> Result<(OneRelay, QuicWgConnHandshaking, String), TunnelConnectError> {
+        select_relay: impl Future<Output = Result<(OneRelay, H), TunnelConnectError>>,
+    ) -> Result<(OneRelay, H, String), TunnelConnectError> {
         let this = self.clone();
         let exit_update = tokio::spawn(async move {
             let r = this.maybe_update_exits(Duration::from_secs(60)).await;
@@ -696,7 +706,7 @@ impl ClientStateHandle {
             r
         });
 
-        let (closest_relay, handshaking) = self.select_relay(relay_selector, relay_transport, network_interface).await?;
+        let (closest_relay, handshaking) = select_relay.await?;
 
         let exit_list = if let Some(l) = self.get_cached_exit_list() {
             l
@@ -725,22 +735,36 @@ impl ClientStateHandle {
         Ok((closest_relay, handshaking, exit))
     }
 
+    /// The relay with the lowest RTT, and its handshake.
     pub async fn select_relay(
         &self,
         relay_selector: &RelaySelector,
         relay_transport: &RelayTransport,
         network_interface: Option<&NetworkInterface>,
     ) -> Result<(OneRelay, QuicWgConnHandshaking), TunnelConnectError> {
-        let (sni, use_tcp_tls, quic_frame_padding, force_small_mtu) = match relay_transport {
-            RelayTransport::Quic { sni, frame_padding, force_small_mtu } => (sni.clone(), false, *frame_padding, *force_small_mtu),
-            RelayTransport::TcpTls { sni } => (sni.clone(), true, false, false),
-            // Speed mode (Ombra patch P5) races over QUIC only for the RTT, with the SNI setting, and then abandons it.
-            RelayTransport::WireguardUdp => {
-                let sni = self.borrow().config.sni_relay.clone().unwrap_or_else(|| DEFAULT_RELAY_SNI.to_owned());
-                (sni, false, false, false)
-            }
-        };
-        let speed_mode = *relay_transport == RelayTransport::WireguardUdp;
+        let candidates = self.matching_relays(relay_selector, relay_transport).await?;
+        self.race_relays(&candidates, relay_transport, network_interface).await
+    }
+
+    /// Speed mode (Ombra patch P5): the race only measures the RTT. With one matching relay there is nothing to
+    /// compare, so there is no race and no QUIC handshake.
+    async fn select_speed_relay(
+        &self,
+        relay_selector: &RelaySelector,
+        network_interface: Option<&NetworkInterface>,
+    ) -> Result<(OneRelay, Option<QuicWgConnHandshaking>), TunnelConnectError> {
+        let mut candidates = self.matching_relays(relay_selector, &RelayTransport::WireguardUdp).await?;
+        if candidates.len() == 1 {
+            let relay = candidates.swap_remove(0);
+            tracing::info!(message_id = "Rk4fZp9U", relay.id = relay.id, "one matching relay, no race in Speed mode");
+            return Ok((relay, None));
+        }
+        let (relay, handshaking) = self.race_relays(&candidates, &RelayTransport::WireguardUdp, network_interface).await?;
+        Ok((relay, Some(handshaking)))
+    }
+
+    /// The relays of the relay list that match `relay_selector`. Never empty.
+    async fn matching_relays(&self, relay_selector: &RelaySelector, relay_transport: &RelayTransport) -> Result<Vec<OneRelay>, TunnelConnectError> {
         let this = self.clone();
         let relay_update = tokio::spawn(async move {
             let r = this.maybe_update_relays(Duration::from_secs(60)).await;
@@ -764,15 +788,34 @@ impl ClientStateHandle {
             );
             return Err(RelaySelectionError::NoMatchingRelay.into());
         }
-
         tracing::info!(
             message_id = "eech6Ier",
             relays.staleness_s =? relays.staleness().as_secs_f32(),
             relays.version =? relays.version(),
             relays.candidates = candidates.len(),
-            sni = sni,
-            "Racing relays",
+            ?relay_transport,
+            "relay candidates",
         );
+        Ok(candidates)
+    }
+
+    /// The first relay of `candidates` that completes its handshake.
+    async fn race_relays(
+        &self,
+        candidates: &[OneRelay],
+        relay_transport: &RelayTransport,
+        network_interface: Option<&NetworkInterface>,
+    ) -> Result<(OneRelay, QuicWgConnHandshaking), TunnelConnectError> {
+        let (sni, use_tcp_tls, quic_frame_padding, force_small_mtu) = match relay_transport {
+            RelayTransport::Quic { sni, frame_padding, force_small_mtu } => (sni.clone(), false, *frame_padding, *force_small_mtu),
+            RelayTransport::TcpTls { sni } => (sni.clone(), true, false, false),
+            // Speed mode (Ombra patch P5) races over QUIC only for the RTT, with the SNI setting, and then abandons it.
+            RelayTransport::WireguardUdp => {
+                let sni = self.borrow().config.sni_relay.clone().unwrap_or_else(|| DEFAULT_RELAY_SNI.to_owned());
+                (sni, false, false, false)
+            }
+        };
+        let speed_mode = *relay_transport == RelayTransport::WireguardUdp;
         let (mtu, mtu_floor_failed) = {
             let inner = self.borrow();
             (inner.mtu, inner.mtu_floor_failed)
@@ -786,7 +829,7 @@ impl ClientStateHandle {
             },
             ack_frequency: !speed_mode && ack_frequency_enabled(),
         };
-        let race = race_relay_handshakes(network_interface, &candidates, sni, use_tcp_tls, quic_tuning, force_small_mtu, mtu)?;
+        let race = race_relay_handshakes(network_interface, candidates, sni, use_tcp_tls, quic_tuning, force_small_mtu, mtu)?;
         Ok(race.select().await?)
     }
 
@@ -825,11 +868,18 @@ impl ClientStateHandle {
     /// Only into the config of `account_id` (Ombra): a request that was in flight during a logout or an account change
     /// must not give the old account's token to the next config.
     fn cache_auth_token(&self, account_id: &AccountId, api_client: &Client) {
-        let auth_token = api_client.get_auth_token();
+        let auth_token: Option<String> = api_client.get_auth_token().map(Into::into);
+        // The same token is no change: no wakeup of the watchers of the client state.
+        {
+            let state = self.borrow();
+            if state.config.account_id.as_ref() != Some(account_id) || state.config.cached_auth_token == auth_token {
+                return;
+            }
+        }
         self.change(|inner| {
             inner.config.change(|config| {
                 if config.account_id.as_ref() == Some(account_id) {
-                    config.cached_auth_token = auth_token.map(Into::into);
+                    config.cached_auth_token = auth_token;
                 }
             });
         })
@@ -1017,6 +1067,15 @@ impl ClientStateHandle {
 
     // Only intended to be called after use (on disconnect). Rotation schedules are fairly arbitrary, so using the key one more time is fine. The benefit is that we don't trigger rotation if the user stops using the client, but the client is still auto-starting. This does not imply the effect of `Self::register_cached_wireguard_key_if_new`. It's the callers responsibility to ensure that registration is triggered asap.
     pub fn rotate_wireguard_key_if_required(&self) {
+        // Without a rotation there is no change: no wakeup of the watchers of the client state.
+        {
+            let state = self.borrow();
+            let max_age = state.config.wg_key_max_age();
+            if !state.config.wireguard_key_cache.needs_rotation(max_age) {
+                tracing::info!(message_id = "Gm4tRw8Z", "no wireguard key pair rotation required");
+                return;
+            }
+        }
         self.change(|inner| {
             inner.config.change(|config| {
                 let max_age = config.wg_key_max_age();
@@ -1041,6 +1100,11 @@ impl ClientStateHandle {
 
     // Registers the current wireguard key via the API server if it has not been registered yet. Because this function is a NOOP after first successful use (until key rotation), it may be called frequently. Most importantly it should be called after disconnecting (due to possible key rotation) and after observing that the user paid.
     pub async fn register_cached_wireguard_key_if_new(&self) -> Result<(), ApiError> {
+        // The usual case, without a change of the client state.
+        if self.borrow().config.wireguard_key_cache.is_registered() {
+            tracing::info!(message_id = "Tb2wKe6N", "public wireguard key already registered");
+            return Ok(());
+        }
         let key_pair = self.change(|inner| {
             inner
                 .config
@@ -1164,6 +1228,9 @@ impl ClientStateHandle {
     }
 
     pub(crate) fn expire_dns_cache(&self) {
+        if !self.borrow().config.dns_cache.has_fresh_entries() {
+            return;
+        }
         self.change_config(|config| config.dns_cache.expire_all())
     }
 

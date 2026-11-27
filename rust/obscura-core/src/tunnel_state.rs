@@ -192,10 +192,12 @@ impl TunnelState {
     async fn maintain(tunnel_state: Sender<TunnelState>, client_state: ClientStateHandle, os_impl: Arc<impl Os>) -> ! {
         let mut client_state_watch = client_state.subscribe();
 
-        // Delay processing new states or retrying after error for at least this long.
+        // After an error or a broken tunnel, the next try starts at the earliest this long after the start of the
+        // failed one. A new target state does not wait: a network change soon after a connect does not stop the
+        // forwarding for up to 1 s. A change of the target state also ends the wait.
         const DEBOUNCE_PERIOD: Duration = Duration::from_secs(1);
 
-        let mut last_start: Option<Instant> = None;
+        let mut debounce_until: Option<Instant> = None;
         let mut disconnect_reason = None;
         let mut selection_state = ExitSelectionState::default();
         let mut os_network_config_refresh = 0;
@@ -219,10 +221,11 @@ impl TunnelState {
         let tun_target = |target: &TargetState| TargetState { network_interface: None, ..target.clone() };
 
         loop {
-            if let Some(last_start) = last_start {
-                sleep_until(last_start + DEBOUNCE_PERIOD).await;
+            if let Some(until) = debounce_until.take() {
+                let current_target = client_state_watch.borrow().target_state();
+                let _ = poll_until_change(&mut client_state_watch, &current_target, sleep_until(until)).await;
             }
-            last_start = Some(Instant::now());
+            let started = Instant::now();
 
             let target_state = client_state_watch.borrow_and_update().target_state();
             tracing::info!(
@@ -340,6 +343,8 @@ impl TunnelState {
                             let delay = retry_wait(connect_retry_delay(capture_failures));
                             if poll_until_change(&mut client_state_watch, &target_state, delay).await.is_none() {
                                 capture_failures = 0;
+                            } else {
+                                debounce_until = Some(started + DEBOUNCE_PERIOD);
                             }
                             ControlFlow::Break(())
                         } else {
@@ -396,6 +401,7 @@ impl TunnelState {
                                         }
                                     } else if account_error_wait.is_none() {
                                         connect_failures += 1;
+                                        debounce_until = Some(started + DEBOUNCE_PERIOD);
                                     }
                                     ControlFlow::Break(())
                                 }
@@ -448,24 +454,22 @@ impl TunnelState {
                                 tunnel_state.set_connect_error(TunnelConnectError::SetOsNetworkConfig);
                             });
                             connect_failures += 1;
+                            debounce_until = Some(started + DEBOUNCE_PERIOD);
                         } else {
                             tun_set_for = Some(tun_target(&target_state));
                             tunnel_state.send_modify(|tunnel_state| {
                                 tunnel_state.set_connected(target_args, target_network_interface, relay_transport, connected)
                             });
-                            // forward traffic until target state changes or the tunnel fails
+                            // forward traffic in batches until target state changes or the tunnel fails
                             disconnect_reason = poll_until_change(&mut client_state_watch, &target_state, async {
-                                loop {
-                                    match conn.receive().await {
-                                        Ok(packet) => os_impl.packet_for_os(packet),
-                                        Err(error) => {
-                                            tracing::error!(message_id = "tls1cZot", tunnel.id =% tunnel_id, ?error, "tunnel failed");
-                                            break error;
-                                        }
-                                    }
-                                }
+                                let error = conn.forward_to(|packets| os_impl.packets_for_os(packets)).await;
+                                tracing::error!(message_id = "tls1cZot", tunnel.id =% tunnel_id, ?error, "tunnel failed");
+                                error
                             })
                             .await;
+                            if disconnect_reason.is_some() {
+                                debounce_until = Some(started + DEBOUNCE_PERIOD);
+                            }
                             if let Some(QuicWgReceiveError::LargePacketsLost) = disconnect_reason {
                                 // Guard 2 of the MTU floor: reconnect without the floor on this network.
                                 client_state.set_mtu_floor_failed();
@@ -496,6 +500,7 @@ impl TunnelState {
                     client_state.delete_leftover_udp_tunnels();
                     if let Err(()) = os_impl.unset_os_network_config().await {
                         tracing::error!(message_id = "PEgDYAz0", "failed to unset network config");
+                        debounce_until = Some(started + DEBOUNCE_PERIOD);
                     } else {
                         tun_set_for = None;
                         // nothing to do until target args change

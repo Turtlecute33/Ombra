@@ -14,6 +14,7 @@ import app.ombra.core.model.Status
 import app.ombra.core.model.VpnStatus
 import app.ombra.ipc.IpcError
 import app.ombra.ipc.Settings
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
@@ -55,6 +56,7 @@ class CoreController(
     private val io: CoroutineDispatcher = Dispatchers.IO,
 ) {
     private val started = AtomicBoolean(false)
+    private val initialSettingsApplied = CompletableDeferred<Unit>()
 
     // Settings reach Rust in the order they were stored, and a full apply never interleaves with a patch.
     private val settingsMutex = Mutex()
@@ -77,12 +79,21 @@ class CoreController(
     /** Applies the settings and starts the long-polls and the periodic refresh. Later calls do nothing. */
     fun start() {
         if (!started.compareAndSet(false, true)) return
-        scope.launch { applyAllSettings() }
+        scope.launch {
+            try {
+                applyAllSettings()
+            } finally {
+                initialSettingsApplied.complete(Unit)
+            }
+        }
         scope.launch { longPoll("status", CoreCommands::getStatus, Status::version, ::onStatus) }
         scope.launch { longPoll("exit list", CoreCommands::getExitList, { it.version }) { exitsState.value = it } }
         scope.launch { longPoll("relay list", CoreCommands::getRelayList, { it.version }) { relaysState.value = it } }
         scope.launch { periodicRefresh() }
     }
+
+    /** Waits for the first push of the settings, also a failed one: a connect after a cold start uses them. */
+    suspend fun awaitInitialSettings() = initialSettingsApplied.await()
 
     /** Pushes every Rust-side setting. */
     suspend fun applyAllSettings() = settingsMutex.withLock { send(SettingsSync.all(settingsStore.current)) }

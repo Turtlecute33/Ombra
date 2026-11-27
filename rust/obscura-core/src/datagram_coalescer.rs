@@ -60,9 +60,10 @@ impl DatagramCoalescer {
         Self { shared, _flush_task: flush_task }
     }
 
-    /// Sends the messages in order, or holds them until more join them.
-    pub fn send(&self, messages: impl IntoIterator<Item = Bytes>) {
-        let room = self.shared.conn.max_datagram_size().unwrap_or(0);
+    /// Sends the messages in order, or holds them until more join them. `room` is quinn's `max_datagram_size` when the
+    /// caller has it: one lock of quinn's connection less for each batch.
+    pub fn send(&self, messages: impl IntoIterator<Item = Bytes>, room: Option<u16>) {
+        let room = room.map(usize::from).unwrap_or_else(|| self.shared.conn.max_datagram_size().unwrap_or(0));
         let now = Instant::now();
         let mut ready = Messages::new();
         let mut batch = self.shared.batch.lock().unwrap();
@@ -79,7 +80,9 @@ impl DatagramCoalescer {
         }
         // Sent while the batch is locked, so that the flush task cannot send older messages after these.
         send_datagrams(&self.shared.conn, ready);
-        if batch.due.is_some() && batch.due != due_before {
+        // The flush task waits for `batch_started` only when it saw no batch. With a batch before this send, it wakes
+        // at the time of that batch and reads `due` again.
+        if due_before.is_none() && batch.due.is_some() {
             self.shared.batch_started.notify_one();
         }
     }

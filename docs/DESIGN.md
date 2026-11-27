@@ -87,7 +87,11 @@ Two processes in one APK:
 
 - **Main process** (`app.ombra`): Compose UI only. It never loads the native library.
 - **`:vpn` process**: loads `libobscuravpn_client.so` and owns all state. Components in this process:
-  - `CoreHost` (singleton object): initializes Rust once per process (idempotent), runs the ONE
+  - `CoreHost` (singleton object): makes the Kotlin part on the calling thread and initializes Rust
+    once per process off the main thread (Keystore and `loadLibrary`, so that `startForeground` comes
+    in time at a cold boot). An IPC call waits for the first init attempt, a start of
+    `OmbraVpnService` waits for Rust and keeps the order of the starts, and a connect after a cold
+    start waits for the first settings push. It runs the ONE
     status long-poll loop, the ONE exit-list loop and the ONE relay-list loop, refreshes account info
     (at start, after login, every 12 h while the process lives, and when a connect error is
     `accountExpired`), owns `SettingsStore` and re-applies settings to Rust after every login and at
@@ -107,7 +111,7 @@ Two processes in one APK:
   with the flag set, send `{"setTunnelArgs":{"args":null,"active":true}}`.
 - System always-on start (`SERVICE_INTERFACE` action): same command.
 - `onRevoke()`: disconnect, clear the wanted flag, stop.
-- Call `startForeground` at once in `onStartCommand`.
+- Call `startForeground` at once in `onStartCommand`, before Rust starts.
 - Never call `VpnService.prepare()` in the service. The UI asks for consent.
 - Unregister every callback in `onDestroy`.
 
@@ -454,6 +458,8 @@ Android side:
 ## 11. Testing
 
 - Rust: `cargo test` on the host for all patches (serde shapes, relay filter, UDP mode config).
+  The Android and Linux syscall paths (`recvmmsg`, `sendmmsg`, the TUN) compile only for the device
+  target: `cargo ndk -t arm64-v8a -P 35 clippy --lib --frozen` checks them, no test runs them.
 - Kotlin JVM unit tests: JSON models against the sample JSON in `docs/research/rust-ffi.md`,
   `AccountNumber` (Verhoeff), settings serialization, sanitizer, state reducers.
 - Contract: the Rust test `kotlin_contract_test.rs` writes `app/src/test/resources/core-contract.json`

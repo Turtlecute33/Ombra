@@ -28,9 +28,11 @@ object CoreBridge : CoreChannel {
 
     /**
      * Sends [json] and waits for the Ok payload. [timeout] null waits forever (long-polls). A
-     * timeout does not cancel the Rust task; its late result is dropped.
+     * timeout does not cancel the Rust task; its late result is dropped. In a cold process the call
+     * first waits for the Rust start, which runs off the main thread.
      */
     override suspend fun raw(json: String, timeout: Duration?): String {
+        if (!CoreHost.isReady) CoreHost.awaitInitialRustInit()
         val future = CompletableFuture<String?>()
         try {
             RustFfi.jsonFfi(json, future)

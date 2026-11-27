@@ -15,6 +15,7 @@ import app.ombra.core.model.VpnStatus
 import app.ombra.ipc.IpcError
 import app.ombra.ipc.Settings
 import app.ombra.ui.connect.connected
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
@@ -70,6 +71,23 @@ class CoreControllerTest {
         assertEquals(1, core.openPolls(ManagerCmd.GetStatus::class))
         assertEquals(1, core.openPolls(ManagerCmd.GetExitList::class))
         assertEquals(1, core.openPolls(ManagerCmd.GetRelayList::class))
+    }
+
+    @Test
+    fun aConnectAfterAColdStartWaitsForTheFirstSettingsPush() = runTest {
+        val controller = controller()
+        var waited = false
+        backgroundScope.launch {
+            controller.awaitInitialSettings()
+            waited = true
+        }
+        runCurrent()
+        assertFalse(waited, "no push before start")
+
+        controller.start()
+        runCurrent()
+        assertTrue(waited)
+        assertEquals(allSettingsCommands(), core.sent)
     }
 
     @Test

@@ -353,7 +353,7 @@ impl Manager {
             let mut backoff = Backoff::BACKGROUND.take(10);
             while backoff.wait().await {
                 let Err(error) = this.client_state.register_cached_wireguard_key_if_new().await else {
-                    continue;
+                    break;
                 };
                 tracing::warn!(message_id = "DhL1YJG0", ?error, "failed attempt to register cached wireguard key");
             }

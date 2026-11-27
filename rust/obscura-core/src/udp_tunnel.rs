@@ -301,7 +301,8 @@ impl ClientStateHandle {
         let id = Uuid::new_v4();
         claims.claim(id);
         let mut forgotten = Vec::new();
-        self.change_config(|config| {
+        // On the disk before the API makes the tunnel: after a crash, the next start knows the tunnel and deletes it.
+        self.change_config_sync(|config| {
             config.owned_udp_tunnel_ids.push(id);
             let excess = config.owned_udp_tunnel_ids.len().saturating_sub(MAX_OWNED_TUNNEL_IDS);
             forgotten = config.owned_udp_tunnel_ids.drain(..excess).collect();

@@ -22,6 +22,8 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 /**
@@ -40,20 +42,25 @@ class OmbraVpnService : VpnService(), Callbacks.NetworkConfigHandler {
     private var observing = false
     private var lastStartId = 0
 
+    /** Held by the starts that wait for Rust: each start runs in its order, so a quick Disconnect never runs first. */
+    private val startOrder = Mutex()
+
     override fun onCreate() {
         super.onCreate()
-        CoreHost.init(applicationContext)
+        // Only the Kotlin part: the Keystore and loadLibrary() run off the main thread after
+        // enterForeground(), so that a cold boot does not pass the time limit of startForeground().
+        CoreHost.initShell(applicationContext)
         VpnNotifications.createChannels(this)
         networkMonitor = NetworkMonitor(this)
         wakeMonitor = WakeMonitor(this, { QuickTileService.requestUpdate(this) }) {
-            RustFfi.wake()
+            if (CoreHost.isReady) RustFfi.wake()
             // Always-on can change in Settings without a start of this service.
             CoreHost.refreshSystemState()
         }
         packageMonitor = PackageMonitor(this, { CoreHost.settingsStore.current }) {
             CoreHost.scope.launch { CoreHost.controller.refreshTun() }
         }
-        tun = TunConfigurator(this, { CoreHost.settingsStore.current }, { networkMonitor.current })
+        tun = TunConfigurator(this, { CoreHost.settingsStore.current }, { networkMonitor.underlyingNetworks })
         Callbacks.setNetworkConfigHandler(this)
         CoreHost.attachVpnService(this)
         if (CoreHost.isReady) networkMonitor.start()
@@ -63,17 +70,29 @@ class OmbraVpnService : VpnService(), Callbacks.NetworkConfigHandler {
         lastStartId = startId
         val action = intent?.action
         if (ServicePolicy.needsForeground(action) && !inForeground) inForeground = enterForeground()
-        if (!CoreHost.isReady) {
-            // A Keystore failure at an earlier start may have passed (OMBRA-SEC-004).
-            CoreHost.init(applicationContext)
-            if (CoreHost.isReady) networkMonitor.start()
+        if (CoreHost.isReady && !startOrder.isLocked) {
+            networkMonitor.start()
+            return handleStart(action, startId)
         }
-        if (!CoreHost.isReady) {
-            Log.e(TAG, "Rust core unavailable: ${CoreHost.initError}")
-            if (ServicePolicy.wantsTunnel(ServicePolicy.start(action, inForeground, CoreHost.vpnWanted))) VpnNotifications.showCannotStart(this)
-            stopSelf(startId)
-            return START_NOT_STICKY
+        scope.launch {
+            startOrder.withLock {
+                if (CoreHost.ensureRustReadySuspend()) {
+                    networkMonitor.start()
+                    handleStart(action, startId)
+                } else {
+                    // A Keystore failure at an earlier start may have passed (OMBRA-SEC-004): each start tries again.
+                    Log.e(TAG, "Rust core unavailable: ${CoreHost.initError}")
+                    if (ServicePolicy.wantsTunnel(ServicePolicy.start(action, inForeground, CoreHost.vpnWanted))) {
+                        VpnNotifications.showCannotStart(this@OmbraVpnService)
+                    }
+                    stopSelf(startId)
+                }
+            }
         }
+        return START_STICKY
+    }
+
+    private fun handleStart(action: String?, startId: Int): Int {
         // A system start can mean that always-on or lockdown changed.
         CoreHost.refreshSystemState()
         when (val start = ServicePolicy.start(action, inForeground, CoreHost.vpnWanted)) {
@@ -177,6 +196,10 @@ class OmbraVpnService : VpnService(), Callbacks.NetworkConfigHandler {
     private fun connect(args: TunnelArgs?) {
         CoreHost.vpnWanted = true
         launchCore {
+            // After a cold start the settings reach Rust first: else Rust connects with its default
+            // settings and connects again when they come. A Disconnect during this wait wins.
+            CoreHost.controller.awaitInitialSettings()
+            if (!CoreHost.vpnWanted) return@launchCore
             try {
                 CoreBridge.call(CoreCommands.connect(args))
             } catch (e: ErrorCodeException) {

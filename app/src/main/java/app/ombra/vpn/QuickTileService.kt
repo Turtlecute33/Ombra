@@ -12,6 +12,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 
 /**
@@ -24,13 +25,14 @@ class QuickTileService : TileService() {
 
     override fun onCreate() {
         super.onCreate()
-        CoreHost.init(applicationContext)
+        CoreHost.initAsync(applicationContext)
     }
 
     override fun onStartListening() {
         super.onStartListening()
         listening?.cancel()
-        listening = scope.launch { CoreHost.statusView.collect(::render) }
+        // Rust starts after this in a cold process: the tile draws again when it is ready.
+        listening = scope.launch { combine(CoreHost.statusView, CoreHost.ready) { view, _ -> view }.collect(::render) }
     }
 
     override fun onStopListening() {
@@ -46,7 +48,7 @@ class QuickTileService : TileService() {
 
     override fun onClick() {
         super.onClick()
-        if (!CoreHost.isReady) return
+        // No wait for Rust: a click can start this process, and the VPN service waits for Rust itself.
         // Always-on can change in Settings while nothing here watches it, so read it again now.
         CoreHost.refreshSystemState()
         val view = CoreHost.statusView.value.copy(canDisconnect = CoreHost.systemState.value.alwaysOn != true)
@@ -82,7 +84,8 @@ class QuickTileService : TileService() {
     private fun render(view: StatusView) {
         val tile = qsTile ?: return
         tile.state = when {
-            !CoreHost.isReady -> Tile.STATE_UNAVAILABLE
+            // Only a failed start: while Rust starts, the tile shows the state that it will have.
+            !CoreHost.isReady && CoreHost.initError != null -> Tile.STATE_UNAVAILABLE
             view.tunnelInUse -> Tile.STATE_ACTIVE
             else -> Tile.STATE_INACTIVE
         }

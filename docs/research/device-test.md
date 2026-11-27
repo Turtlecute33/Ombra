@@ -459,3 +459,30 @@ The exit was a city, so each connection got one of three exit servers. With the 
 - Speed mode on mobile data is not tested.
 
 Not tested: other phones, TCP/TLS mode, downloads on mobile data, P28 on mobile data.
+
+## Batched data path and Rust start off the main thread (0.2.18, 2026-11-27)
+
+Pixel 9 Pro XL, Wi-Fi, Stealth with padding, always-on + lockdown, one exit server for all runs. Single 8 s runs
+(estimates, Mbit/s). "Before" is a test build of the same day with the batched path, the BBR edits and the idle
+timer backoff, before the triage (versionCode 19).
+
+| Test | Before | 0.2.18 |
+|---|---|---|
+| Download, 4 streams | 549 | 559, 543 |
+| Download, 1 stream | 301 | 350 |
+| Upload, 4 streams | 269 | 286 |
+| Upload, 1 stream | 139 | 123, 146 |
+| Idle ping p50 | 29 ms | 27 ms |
+
+- Speed mode on an earlier 0.2.18 build (first run of the `recvmmsg` and `sendmmsg` paths): download 535 (4 streams)
+  and 379 (1 stream), upload 254 and 158, idle ping 29 ms.
+- Update over the release install: the VPN network was up again about 0.7 s after the start of the new `:vpn`
+  process (Rust starts off the main thread).
+- An idle timer backoff (55 s `update_timers`) gave one handshake that was not necessary,
+  `HANDSHAKE(KEEPALIVE + REKEY_TIMEOUT)`, in about 2 minutes in the background: boringtun stamps packets with the
+  time of the last tick. Removed (P40). The build without it showed no such handshake in 2.5 minutes.
+- The TUN writer queue (P25) was full for a moment in each 4-stream download: 11 and 45 packets dropped (first
+  event of each 5 s log window).
+
+Not tested: a tap on the Quick Settings tile while `:vpn` does not run (needs the VPN off), a Speed mode download
+longer than 3 minutes (rekey), mobile data.

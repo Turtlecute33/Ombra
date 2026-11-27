@@ -32,6 +32,10 @@ const_assert!(2 * MAX_LARGE_PROBES_LOST_IN_A_ROW == 6);
 /// More than the probes of the longest probe lost period (30 s at one busy probe per second) plus the allowed losses.
 const MAX_OUTSTANDING_PROBES: usize = 64;
 
+/// A wake sends no probe when packets came from the exit in this time: the tunnel is alive, and the probe only uses the
+/// radio, for example when the user looks at the lock screen during a download.
+const WAKE_COOLDOWN: Duration = Duration::from_secs(3);
+
 // Randomly generated value to reliably distinguish our probes from other pings
 const PROBE_PREFIX: &[u8; 32] = b"obs-ping\x75\xf8\xb9\x47\x4b\xe1\x61\xeb\x1c\xb1\xeb\x5e\xc0\x6c\xde\xb7\xa1\x1b\x7b\xe5\x85\xca\x3a\x95";
 
@@ -55,6 +59,7 @@ pub struct LivenessChecker {
     /// Busy probes left of [`BUSY_PROBES_WITH_LARGE_CHECKS_AFTER_REBIND`].
     busy_probes_with_large_checks: u32,
     is_waking: bool,
+    last_rx_at: Option<WakeInstant>,
     outstanding_pongs: VecDeque<SentPing>,
     last_ping_sent_at: Option<WakeInstant>,
     slowest_pongs: VecDeque<ReceivedPong>,
@@ -82,6 +87,7 @@ impl LivenessChecker {
             traffic_proves_life: true,
             busy_probes_with_large_checks: 0,
             is_waking: false,
+            last_rx_at: None,
             outstanding_pongs: Default::default(),
             last_ping_sent_at: None,
             slowest_pongs: Default::default(),
@@ -116,10 +122,11 @@ impl LivenessChecker {
         lost_probes.saturating_sub(probes_before_received_traffic)
     }
 
-    /// Call for each packet from the exit.
+    /// Call for each packet (or batch of packets) from the exit.
     pub fn received_traffic(&mut self) {
         if self.traffic_proves_life {
             self.probes_sent_since_received_traffic = 0;
+            self.last_rx_at = Some(WakeInstant::now());
         }
     }
 
@@ -139,6 +146,16 @@ impl LivenessChecker {
         None
     }
 
+    /// [`Self::wake`], but no probe when packets came from the exit in the last [`WAKE_COOLDOWN`].
+    #[must_use = "the returned packet needs to be sent"]
+    pub fn maybe_wake(&mut self) -> Option<Vec<u8>> {
+        let now = WakeInstant::now();
+        if self.traffic_proves_life && !self.is_waking && self.last_rx_at.is_some_and(|at| now.saturating_duration_since(at) < WAKE_COOLDOWN) {
+            return None;
+        }
+        Some(self.wake())
+    }
+
     // Call after sleep. Reduces the number of lost probes needed to classify as dead until a probe succeeded. Returns a packet for sending.
     #[must_use = "the returned packet needs to be sent"]
     pub fn wake(&mut self) -> Vec<u8> {
@@ -148,10 +165,13 @@ impl LivenessChecker {
         // - Likely chance that something will use the network (we probably woke for a reason).
         let now = WakeInstant::now();
         // A wake soon after a rebind must keep its guards until a probe is answered.
+        // The slowest pongs also stay: on a slow mobile network the time until a probe counts as lost stays long.
         let (traffic_proves_life, busy_probes_with_large_checks) = (self.traffic_proves_life, self.busy_probes_with_large_checks);
+        let slowest_pongs = std::mem::take(&mut self.slowest_pongs);
         *self = Self::new(self.mtu, self.large_probe_mtu, self.src_ip, self.dst_ip);
         self.traffic_proves_life = traffic_proves_life;
         self.busy_probes_with_large_checks = busy_probes_with_large_checks;
+        self.slowest_pongs = slowest_pongs;
         self.is_waking = true;
         // Immediately test connection after wake.
         self.send_ping(now, false)
@@ -163,6 +183,8 @@ impl LivenessChecker {
     #[must_use = "the returned packet needs to be sent"]
     pub fn rebind(&mut self, old_socket_reads: bool) -> Vec<u8> {
         let probe = self.wake();
+        // A new network has a different RTT.
+        self.slowest_pongs.clear();
         self.traffic_proves_life = !old_socket_reads;
         if self.large_probe_mtu.is_some() {
             self.busy_probes_with_large_checks = BUSY_PROBES_WITH_LARGE_CHECKS_AFTER_REBIND;
@@ -641,5 +663,36 @@ mod tests {
         let mut checker = LivenessChecker::new(SMALL, Some(LARGE), CLIENT_IP, GATEWAY_IP);
         let (_, now) = busy_tunnel(&mut checker, WakeInstant::now(), 10, |_| false);
         assert!(matches!(checker.poll_at(now), LivenessCheckerPoll::Dead));
+    }
+
+    #[test]
+    fn a_wake_sends_no_probe_soon_after_packets_from_the_exit() {
+        let mut checker = LivenessChecker::new(SMALL, None, CLIENT_IP, GATEWAY_IP);
+        assert!(checker.maybe_wake().is_some(), "no packet yet");
+        let mut checker = LivenessChecker::new(SMALL, None, CLIENT_IP, GATEWAY_IP);
+        checker.received_traffic();
+        assert!(checker.maybe_wake().is_none());
+        // After a rebind the old socket's packets prove nothing.
+        let _ = checker.rebind(true);
+        checker.received_traffic();
+        assert!(checker.maybe_wake().is_some());
+    }
+
+    #[test]
+    fn wake_preserves_slowest_pongs_while_rebind_clears_them() {
+        let mut checker = LivenessChecker::new(SMALL, None, CLIENT_IP, GATEWAY_IP);
+        let start = WakeInstant::now();
+        let LivenessCheckerPoll::SendPacket(probe) = checker.poll_at(start) else {
+            panic!("expected probe");
+        };
+        let high_rtt = Duration::from_millis(1200);
+        assert!(checker.process_potential_probe_response_at(&pong(&probe), start + high_rtt).is_some());
+        assert_eq!(checker.probe_lost_period(), high_rtt * 2);
+
+        let _ = checker.wake();
+        assert_eq!(checker.probe_lost_period(), high_rtt * 2, "wake keeps adapted RTT");
+
+        let _ = checker.rebind(true);
+        assert_eq!(checker.probe_lost_period(), MIN_PROBE_LOST_PERIOD, "rebind resets RTT for new network");
     }
 }

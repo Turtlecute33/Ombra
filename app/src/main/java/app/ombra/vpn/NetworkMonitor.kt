@@ -7,7 +7,7 @@ import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import android.net.VpnService
 import android.os.Handler
-import android.os.Looper
+import android.os.HandlerThread
 import android.util.Log
 import app.ombra.core.ffi.RustFfi
 import java.net.NetworkInterface
@@ -16,72 +16,105 @@ import java.net.SocketException
 /**
  * Follows the best physical network and tells Rust, the VPN and the UI about it. Rust does not
  * move on without an interface: a connect stays at `noInternet` until one is reported. A changed
- * interface makes Rust reconnect. Callbacks run on the main thread.
+ * interface makes Rust reconnect. The callbacks and the read of the interfaces run on an own
+ * [HandlerThread]: the main thread of :vpn makes no netlink or ioctl call.
  */
 class NetworkMonitor(private val service: VpnService) {
     private val connectivity = service.getSystemService(ConnectivityManager::class.java)
-    private val handler = Handler(Looper.getMainLooper())
+    private val stateLock = Any()
+    private var thread: HandlerThread? = null
     private var registered = false
     private var link: LinkFacts? = null
     private var reported: RustNetwork? = null
 
-    /** The network Rust uses now; also the VPN's underlying network. Read by the TUN builder thread. */
+    /** The network Rust uses now; read by the TUN builder thread. */
     @Volatile
     var current: Network? = null
+        private set
+
+    /**
+     * The underlying networks for the TUN builder: the network while there is one, an empty array
+     * after onLost (a TUN that is built without a network stays offline), and null before the first
+     * network (the system default).
+     */
+    @Volatile
+    var underlyingNetworks: Array<Network>? = null
         private set
 
     private val callback = object : ConnectivityManager.NetworkCallback() {
         // The capabilities and link properties follow at once. Until they arrive the new network's
         // facts are unknown, so Rust keeps the previous network for that moment.
         override fun onAvailable(network: Network) {
-            current = network
-            link = null
-            service.setUnderlyingNetworks(arrayOf(network))
+            synchronized(stateLock) {
+                if (!registered) return
+                current = network
+                link = null
+                val nets = arrayOf(network)
+                underlyingNetworks = nets
+                service.setUnderlyingNetworks(nets)
+            }
         }
 
         // The interface can change on the same network (for example when clatd starts).
         override fun onLinkPropertiesChanged(network: Network, linkProperties: LinkProperties) {
-            if (network != current) return
-            link = readLink(linkProperties)
-            publish()
+            synchronized(stateLock) {
+                if (!registered || network != current) return
+                link = readLink(linkProperties)
+                publishLocked()
+            }
         }
 
         override fun onLost(network: Network) {
-            if (network != current) return
-            current = null
-            link = null
-            service.setUnderlyingNetworks(emptyArray())
-            publish()
+            synchronized(stateLock) {
+                if (!registered || network != current) return
+                current = null
+                link = null
+                val empty = emptyArray<Network>()
+                underlyingNetworks = empty
+                service.setUnderlyingNetworks(empty)
+                publishLocked()
+            }
         }
     }
 
     fun start() {
-        if (registered) return
-        val request = NetworkRequest.Builder()
-            .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-            .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
-            .build()
-        connectivity.registerBestMatchingNetworkCallback(request, callback, handler)
-        registered = true
-        reportDefaultNetwork()
+        val handler: Handler
+        synchronized(stateLock) {
+            if (registered) return
+            val worker = HandlerThread("ombra-net").apply { start() }
+            thread = worker
+            handler = Handler(worker.looper)
+            val request = NetworkRequest.Builder()
+                .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
+                .build()
+            connectivity.registerBestMatchingNetworkCallback(request, callback, handler)
+            registered = true
+        }
+        handler.post(::reportDefaultNetwork)
     }
 
     /**
      * The callback reports the network only after the connect that came with this start reached
-     * Rust, and Rust then waits 1 s before it tries again. So report the default network at once;
-     * the callback confirms it a moment later, or reports the better one.
+     * Rust. So report the default network at once, on the worker thread; the callback confirms it
+     * a moment later, or reports the better one.
      */
     private fun reportDefaultNetwork() {
-        val network = connectivity.activeNetwork ?: return
-        val capabilities = connectivity.getNetworkCapabilities(network) ?: return
-        val linkProperties = connectivity.getLinkProperties(network) ?: return
-        val usable = capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
-            capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
-        if (!usable) return
-        current = network
-        link = readLink(linkProperties)
-        service.setUnderlyingNetworks(arrayOf(network))
-        publish()
+        synchronized(stateLock) {
+            if (!registered || current != null) return
+            val network = connectivity.activeNetwork ?: return
+            val capabilities = connectivity.getNetworkCapabilities(network) ?: return
+            val linkProperties = connectivity.getLinkProperties(network) ?: return
+            val usable = capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+                capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
+            if (!usable) return
+            current = network
+            link = readLink(linkProperties)
+            val nets = arrayOf(network)
+            underlyingNetworks = nets
+            service.setUnderlyingNetworks(nets)
+            publishLocked()
+        }
     }
 
     /**
@@ -89,21 +122,29 @@ class NetworkMonitor(private val service: VpnService) {
      * SystemState keeps the last facts: they are the last known state of the network.
      */
     fun stop() {
-        if (!registered) return
-        registered = false
-        connectivity.unregisterNetworkCallback(callback)
-        current = null
-        report(null)
+        val worker: HandlerThread?
+        synchronized(stateLock) {
+            if (!registered) return
+            registered = false
+            connectivity.unregisterNetworkCallback(callback)
+            current = null
+            link = null
+            underlyingNetworks = null
+            reportLocked(null)
+            worker = thread
+            thread = null
+        }
+        worker?.quitSafely()
     }
 
-    private fun publish() {
+    private fun publishLocked() {
         val network = current
         if (network != null && link == null) return
         CoreHost.updateSystemState { it.withNetwork(link) }
-        report(network?.let { rustNetwork(it.networkHandle, link) })
+        reportLocked(network?.let { rustNetwork(it.networkHandle, link) })
     }
 
-    private fun report(next: RustNetwork?) {
+    private fun reportLocked(next: RustNetwork?) {
         if (next == reported) return
         reported = next
         if (next != null) {
